@@ -1,0 +1,49 @@
+name: Package VSIX
+
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  package:
+    name: VSIX (${{ matrix.rid }})
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        include:
+          - rid: linux-x64
+            binary: ComplexityAnalyzer.Server
+          - rid: win-x64
+            binary: ComplexityAnalyzer.Server.exe
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '8.0.x'
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+          cache-dependency-path: src/extension/package-lock.json
+      - name: Publish analyzer
+        working-directory: src/analyzer
+        run: >
+          dotnet publish ComplexityAnalyzer.Server
+          -c Release -r ${{ matrix.rid }} --self-contained
+          -o ../extension/server
+      - name: Verify server
+        run: test -f src/extension/server/${{ matrix.binary }}
+      - name: Package VSIX
+        working-directory: src/extension
+        run: |
+          npm ci
+          npx --yes @vscode/vsce package \
+            --target ${{ matrix.rid }} \
+            --no-rewrite-relative-links
+      - name: Upload VSIX
+        uses: actions/upload-artifact@v4
+        with:
+          name: ohno-${{ matrix.rid }}
+          path: src/extension/*.vsix
+          if-no-files-found: error
