@@ -26,7 +26,7 @@ internal static class DimensionInferrer
         foreach (var parameter in method.Parameters)
             InferParameter(parameter, state, ref next);
         if (method.MethodKind == MethodKind.Constructor) return;
-        InferPrimary(method.ContainingType, state, ref next);
+        InferPrimary(method, state, ref next);
     }
 
     private static void InferParameter(
@@ -47,14 +47,81 @@ internal static class DimensionInferrer
     }
 
     private static void InferPrimary(
-        INamedTypeSymbol? type, AnalysisState state, ref int next)
+        IMethodSymbol method, AnalysisState state, ref int next)
     {
+        var type = method.ContainingType;
         if (type is null) return;
+        if (method.MethodKind is MethodKind.LocalFunction
+            or MethodKind.AnonymousFunction)
+        {
+            return;
+        }
         foreach (var parameter in PrimaryParameters(type))
         {
+            var name = parameter.Name;
+            var member = CapturedMember(type, name);
+            if (member is not null && MentionsMember(method, name))
+            {
+                if (!state.Sizes.ContainsKey(member))
+                    InferParameter(parameter, state, ref next);
+                AliasCaptures(type, parameter, state);
+                continue;
+            }
+            if (!Mentions(method, name)) continue;
             InferParameter(parameter, state, ref next);
             AliasCaptures(type, parameter, state);
         }
+    }
+
+    private static bool Mentions(IMethodSymbol method, string name)
+    {
+        foreach (var reference in method.DeclaringSyntaxReferences)
+        {
+            if (HasIdentifier(reference.GetSyntax(), name))
+                return true;
+        }
+
+        return false;
+    }
+
+    private static bool MentionsMember(
+        IMethodSymbol method, string name)
+    {
+        foreach (var reference in method.DeclaringSyntaxReferences)
+        {
+            if (HasMemberAccess(reference.GetSyntax(), name))
+                return true;
+        }
+
+        return false;
+    }
+
+    private static bool HasMemberAccess(SyntaxNode syntax, string name)
+    {
+        foreach (var node in syntax.DescendantNodes())
+        {
+            if (node is MemberAccessExpressionSyntax access
+                && access.Name.Identifier.Text == name)
+            {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    private static bool HasIdentifier(SyntaxNode syntax, string name)
+    {
+        foreach (var node in syntax.DescendantNodes())
+        {
+            if (node is IdentifierNameSyntax id
+                && id.Identifier.Text == name)
+            {
+                return true;
+            }
+        }
+
+        return false;
     }
 
     private static IEnumerable<IParameterSymbol> PrimaryParameters(
@@ -88,11 +155,20 @@ internal static class DimensionInferrer
         AnalysisState state)
     {
         if (!state.Sizes.TryGetValue(parameter, out var size)) return;
-        foreach (var member in type.GetMembers(parameter.Name))
+        var member = CapturedMember(type, parameter.Name);
+        if (member is not null) state.Sizes[member] = size;
+    }
+
+    private static ISymbol? CapturedMember(
+        INamedTypeSymbol type, string name)
+    {
+        foreach (var member in type.GetMembers(name))
         {
             if (member is IFieldSymbol or IPropertySymbol)
-                state.Sizes[member] = size;
+                return member;
         }
+
+        return null;
     }
 
     internal static ComplexityExpression Fresh(

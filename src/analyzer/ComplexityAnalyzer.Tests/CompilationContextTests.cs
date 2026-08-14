@@ -20,6 +20,22 @@ public class CompilationContextTests
         Assert.Equal(
             "O(n)",
             ComplexityFormatter.FormatBigO(main.Result.Time));
+        Assert.True(main.Range.EndLine >= main.Range.StartLine);
+    }
+
+    [Fact]
+    public void TopLevelStatements_RangeCoversEveryStatement()
+    {
+        var analysis = new CSharpFileAnalyzer().Analyze(
+            """
+            var total = 0;
+            foreach (var item in args)
+                total++;
+            System.Console.Write(total);
+            """,
+            AnalysisTier.Fast);
+        var main = Assert.Single(analysis.Functions);
+        Assert.True(main.Range.EndLine > main.SignatureRange.StartLine);
     }
 
     [Fact]
@@ -33,6 +49,44 @@ public class CompilationContextTests
                 {
                     var total = 0;
                     foreach (var item in nums)
+                        total += item;
+                    return total;
+                }
+            }
+            """,
+            name: "Sum");
+        Assert.Equal(
+            "O(n)", ComplexityFormatter.FormatBigO(result.Time));
+        Assert.Contains(result.Dimensions, d => d.Variable == "n");
+    }
+
+    [Fact]
+    public void PrimaryConstructor_UnusedMethodHasNoDimension()
+    {
+        var result = SnippetAnalyzer.AnalyzeNamed(
+            """
+            class Solution(int[] nums)
+            {
+                public int Zero() => 0;
+            }
+            """,
+            name: "Zero");
+        Assert.DoesNotContain(result.Dimensions, d => d.Variable == "n");
+        Assert.Equal(
+            "O(1)", ComplexityFormatter.FormatBigO(result.Time));
+    }
+
+    [Fact]
+    public void PrimaryConstructor_ThroughMemberAccess_IsADimension()
+    {
+        var result = SnippetAnalyzer.AnalyzeNamed(
+            """
+            class Solution(int[] nums)
+            {
+                public int Sum()
+                {
+                    var total = 0;
+                    foreach (var item in this.nums)
                         total += item;
                     return total;
                 }

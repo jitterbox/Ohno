@@ -4,6 +4,7 @@ import { documentSelectors } from './analysis/languages';
 import { AnalyzerRegistry } from './analysis/registry';
 import { CSharpAnalyzer } from './analysis/csharpAnalyzer';
 import { AnalyzerRpcClient, resolveServerPath } from './analysis/rpcClient';
+import { SolutionBinder } from './analysis/solutionContext';
 import { AnnotationController } from './ui/annotationController';
 // import { ComplexityHoverProvider } from './ui/hoverProvider';
 import { ComplexityCodeLensProvider } from './ui/codeLensProvider';
@@ -20,7 +21,8 @@ export function activate(context: vscode.ExtensionContext): void {
     config.analyzerPath,
   );
   const client = new AnalyzerRpcClient(serverPath, (m) => output.appendLine(m));
-  registry.register(new CSharpAnalyzer(client));
+  const binder = new SolutionBinder((p) => client.setSolution(p));
+  registry.register(new CSharpAnalyzer(client, binder));
 
   const annotations = new AnnotationController(
     registry,
@@ -85,7 +87,7 @@ export function activate(context: vscode.ExtensionContext): void {
     );
   }
 
-  context.subscriptions.push(bindSolution(client, output));
+  context.subscriptions.push(bindSolution(binder, output));
 
   annotations.refresh();
 }
@@ -111,30 +113,20 @@ async function focusFunction(
 }
 
 function bindSolution(
-  client: AnalyzerRpcClient,
+  binder: SolutionBinder,
   output: vscode.OutputChannel,
 ): vscode.Disposable {
   const work = vscode.workspace.findFiles(
-    '{**/*.sln,**/*.csproj}',
+    '**/*.sln',
     '{**/node_modules/**,**/bin/**,**/obj/**}',
-    8,
+    1,
   ).then((files) => {
-    const path = preferSolution(files);
-    if (!path) return;
-    void client.setSolution(path).catch((error) => {
+    if (!files[0]) return;
+    void binder.bind(files[0].fsPath).catch((error) => {
       output.appendLine(`setSolution failed: ${String(error)}`);
     });
   });
   return { dispose: () => void work };
-}
-
-function preferSolution(files: vscode.Uri[]): string | undefined {
-  const sln = files.find((f) => f.fsPath.endsWith('.sln'));
-  if (sln) return sln.fsPath;
-  return [...files]
-    .filter((f) => f.fsPath.endsWith('.csproj'))
-    .sort((a, b) => a.fsPath.length - b.fsPath.length)[0]
-    ?.fsPath;
 }
 
 export function deactivate(): void {

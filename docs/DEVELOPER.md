@@ -162,9 +162,11 @@ a formal unsoundness proof.
 
 ### 3.1 Fast tier
 
-When a `.sln` / `.csproj` is loaded and the document is in that
-graph, fast uses the same project `SemanticModel` as deep (buffer
-overlaid). It does **not** wait on an in-progress solution open.
+When a `.sln` is found, or a `.csproj` is found by walking up from
+the file, and that graph is ready, fast uses the same project
+`SemanticModel` as deep (buffer overlaid). It does **not** wait on
+an in-progress solution open. It does wait for the workspace gate
+once the graph is ready, so a deep run cannot silently force ad-hoc.
 
 Otherwise `CompilationFactory` builds a
 [`CSharpCompilation`](https://learn.microsoft.com/dotnet/api/microsoft.codeanalysis.csharp.csharpcompilation)

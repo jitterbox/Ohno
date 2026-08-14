@@ -4,8 +4,8 @@ using Microsoft.CodeAnalysis;
 namespace ComplexityAnalyzer.CSharp;
 
 /// <summary>
-/// File-level bind failures the ad-hoc compilation cannot see
-/// (missing project types, file-based package directives).
+/// File-level bind failures (unresolved types, file-based package
+/// directives). Collected from the current file's semantic model.
 /// </summary>
 internal static class BindWarnings
 {

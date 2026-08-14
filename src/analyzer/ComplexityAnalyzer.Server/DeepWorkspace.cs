@@ -16,7 +16,8 @@ namespace ComplexityAnalyzer.Server;
 /// <c>MSBuildLocator</c>. Edge case: a missing SDK or a project that
 /// failed to load yields <see cref="LastError"/> and the ad-hoc
 /// compilation, not a fabricated bound. Fast never waits on an
-/// in-progress solution open.
+/// in-progress solution open; once ready it waits for the workspace
+/// gate instead of falling back to ad-hoc.
 /// </remarks>
 public sealed class DeepWorkspace : IDisposable
 {
@@ -27,7 +28,7 @@ public sealed class DeepWorkspace : IDisposable
 
     public string? LastError { get; private set; }
 
-    public bool IsReady => _workspace is not null && LastError is null;
+    public bool IsReady { get; private set; }
 
     public async Task SetSolutionAsync(
         string path, CancellationToken token = default)
@@ -41,6 +42,7 @@ public sealed class DeepWorkspace : IDisposable
         catch (Exception ex)
         {
             LastError = ex.Message;
+            IsReady = false;
             _workspace?.Dispose();
             _workspace = null;
             throw;
@@ -74,9 +76,10 @@ public sealed class DeepWorkspace : IDisposable
         CancellationToken token)
     {
         if (!IsReady) return null;
-        if (!_gate.Wait(0)) return null;
+        await _gate.WaitAsync(token).ConfigureAwait(false);
         try
         {
+            if (!IsReady) return null;
             return await ModelOfAsync(filePath, text, token)
                 .ConfigureAwait(false);
         }
@@ -97,6 +100,7 @@ public sealed class DeepWorkspace : IDisposable
     {
         var full = FilePaths.Normalize(path);
         SolutionPath = full;
+        IsReady = false;
         _workspace?.Dispose();
         _workspace = MSBuildWorkspace.Create();
         if (full.EndsWith(".sln", StringComparison.OrdinalIgnoreCase))
@@ -104,6 +108,7 @@ public sealed class DeepWorkspace : IDisposable
         else
             await _workspace.OpenProjectAsync(full, cancellationToken: token);
         LastError = null;
+        IsReady = true;
     }
 
     private async Task<SemanticModelLookup?> ModelOfAsync(

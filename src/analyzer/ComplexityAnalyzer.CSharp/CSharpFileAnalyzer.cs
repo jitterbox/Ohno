@@ -106,14 +106,27 @@ public sealed class CSharpFileAnalyzer
 
         var root = model.SyntaxTree.GetRoot(token);
         if (root is not CompilationUnitSyntax unit) return;
-        var first = unit.Members
+        var globals = unit.Members
             .OfType<GlobalStatementSyntax>()
-            .FirstOrDefault();
-        if (first is null) return;
-        var span = RoslynSpans.Of(first)
+            .ToArray();
+        if (globals.Length == 0) return;
+        var signature = RoslynSpans.Of(globals[0])
             ?? new LineSpan(0, 0, 0, 0);
+        var range = SpanOfGlobals(globals, signature);
         var result = _methods.Analyze(main, model, tier);
         functions.Insert(
-            0, new AnalyzedFunction(main, result, span, span));
+            0, new AnalyzedFunction(main, result, range, signature));
+    }
+
+    private static LineSpan SpanOfGlobals(
+        GlobalStatementSyntax[] globals, LineSpan fallback)
+    {
+        var first = RoslynSpans.Of(globals[0]) ?? fallback;
+        var last = RoslynSpans.Of(globals[^1]) ?? first;
+        return new LineSpan(
+            first.StartLine,
+            first.StartCharacter,
+            last.EndLine,
+            last.EndCharacter);
     }
 }

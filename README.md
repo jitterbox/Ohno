@@ -35,11 +35,11 @@ The **Complexity** activity-bar view shows:
 - a derivation tree that rolls up like spreadsheet subtotals
 - bounding suggestions (for example, cap a priority queue at `k`)
 
-Automatic analysis is the **fast** tier: it uses the loaded
-`.sln` / `.csproj` when that workspace is ready, and otherwise an
-ad-hoc compilation of the buffer. Deep analysis
-(`Ohno: Run Deep Analysis`) waits for the project graph and records
-a warning if it has to fall back.
+Automatic analysis is the **fast** tier: it uses a loaded `.sln`,
+or the `.csproj` found by walking up from the file, when that
+workspace is ready. Otherwise it uses an ad-hoc compilation of the
+buffer. Deep analysis (`Ohno: Run Deep Analysis`) waits for the
+project graph and records a warning if it has to fall back.
 
 ## What Ohno is not
 
