@@ -1,7 +1,7 @@
-# Oʰ(nᵒ) — Algorithmic Complexity
+# Oʰ(Nᵒ) — Algorithmic Complexity
 
 <p align="center">
-  <img src="media/icon.png" alt="Oʰ(nᵒ)" width="128" height="128">
+  <img src="media/icon.png" alt="Oʰ(Nᵒ)" width="128" height="128">
 </p>
 
 Inline **Big-O time and auxiliary-space** estimates for functions in

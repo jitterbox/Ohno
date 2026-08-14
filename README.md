@@ -1,7 +1,7 @@
-# Ohno — Algorithmic Complexity
+# Oʰ(Nᵒ) — Algorithmic Complexity
 
 <p align="center">
-  <img src="assets/icon.png" alt="Oʰ(nᵒ)" width="128" height="128">
+  <img src="assets/icon.png" alt="Oʰ(Nᵒ)" width="128" height="128">
 </p>
 
 Ohno is a Visual Studio Code extension that estimates **Big-O time** and
