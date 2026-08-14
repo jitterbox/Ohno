@@ -1,0 +1,142 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://ohno.dev/protocol.schema.json",
+  "title": "Ohno analyzer protocol",
+  "description": "JSON-RPC 2.0 methods over header-delimited stdio transport.",
+  "methods": {
+    "initialize": {
+      "params": { "type": "object", "properties": { "clientInfo": { "type": "string" } } },
+      "result": {
+        "type": "object",
+        "required": ["serverName", "analyzerVersion"],
+        "properties": {
+          "serverName": { "type": "string" },
+          "analyzerVersion": { "type": "string" }
+        }
+      }
+    },
+    "ohno/analyze": {
+      "params": {
+        "type": "object",
+        "required": ["uri", "text", "version", "tier"],
+        "properties": {
+          "uri": { "type": "string" },
+          "text": { "type": "string" },
+          "version": { "type": "integer" },
+          "tier": { "enum": ["fast", "deep"] }
+        }
+      },
+      "result": { "$ref": "#/definitions/AnalyzeResponse" }
+    },
+    "ohno/analyzeDeep": {
+      "params": { "$ref": "#/methods/ohno~1analyze/params" },
+      "result": { "$ref": "#/definitions/AnalyzeResponse" },
+      "notes": "Long-running; server reports progress via $/progress."
+    },
+    "ohno/setSolutionContext": {
+      "params": {
+        "type": "object",
+        "required": ["solutionPath"],
+        "properties": { "solutionPath": { "type": "string" } }
+      },
+      "result": { "type": "null" }
+    },
+    "shutdown": { "params": { "type": "null" }, "result": { "type": "null" } }
+  },
+  "definitions": {
+    "AnalyzeResponse": {
+      "type": "object",
+      "required": ["uri", "version", "functions", "warnings"],
+      "properties": {
+        "uri": { "type": "string" },
+        "version": { "type": "integer" },
+        "functions": {
+          "type": "array",
+          "items": { "$ref": "#/definitions/FunctionComplexity" }
+        },
+        "warnings": { "type": "array", "items": { "$ref": "#/definitions/AnalysisWarning" } }
+      }
+    },
+    "FunctionComplexity": {
+      "type": "object",
+      "required": [
+        "id", "name", "kind", "range", "signatureRange", "time", "space",
+        "confidence", "dimensions", "evidence", "warnings",
+        "boundingSuggestions", "tier"
+      ],
+      "properties": {
+        "id": { "type": "string" },
+        "name": { "type": "string" },
+        "kind": {
+          "enum": ["method", "constructor", "localFunction", "lambda", "property", "operator"]
+        },
+        "range": { "$ref": "#/definitions/LineRange" },
+        "signatureRange": { "$ref": "#/definitions/LineRange" },
+        "time": { "type": "string", "pattern": "^O\\(" },
+        "space": { "type": "string", "pattern": "^O\\(" },
+        "confidence": { "enum": ["high", "medium", "low", "unknown"] },
+        "dimensions": {
+          "type": "array",
+          "items": { "$ref": "#/definitions/InputDimension" }
+        },
+        "evidence": { "$ref": "#/definitions/EvidenceNode" },
+        "warnings": { "type": "array", "items": { "$ref": "#/definitions/AnalysisWarning" } },
+        "boundingSuggestions": {
+          "type": "array",
+          "items": { "$ref": "#/definitions/BoundingSuggestion" }
+        },
+        "tier": { "enum": ["fast", "deep"] }
+      }
+    },
+    "EvidenceNode": {
+      "type": "object",
+      "required": ["kind", "label", "cost", "children"],
+      "properties": {
+        "kind": { "type": "string" },
+        "label": { "type": "string" },
+        "cost": { "type": "string" },
+        "range": { "$ref": "#/definitions/LineRange" },
+        "children": {
+          "type": "array",
+          "items": { "$ref": "#/definitions/EvidenceNode" }
+        }
+      }
+    },
+    "InputDimension": {
+      "type": "object",
+      "required": ["variable", "meaning"],
+      "properties": {
+        "variable": { "type": "string" },
+        "meaning": { "type": "string" }
+      }
+    },
+    "AnalysisWarning": {
+      "type": "object",
+      "required": ["message"],
+      "properties": {
+        "message": { "type": "string" },
+        "range": { "$ref": "#/definitions/LineRange" }
+      }
+    },
+    "BoundingSuggestion": {
+      "type": "object",
+      "required": ["description", "condition", "resultingTime", "resultingSpace"],
+      "properties": {
+        "description": { "type": "string" },
+        "condition": { "type": "string" },
+        "resultingTime": { "type": "string" },
+        "resultingSpace": { "type": "string" }
+      }
+    },
+    "LineRange": {
+      "type": "object",
+      "required": ["startLine", "startCharacter", "endLine", "endCharacter"],
+      "properties": {
+        "startLine": { "type": "integer", "minimum": 0 },
+        "startCharacter": { "type": "integer", "minimum": 0 },
+        "endLine": { "type": "integer", "minimum": 0 },
+        "endCharacter": { "type": "integer", "minimum": 0 }
+      }
+    }
+  }
+}

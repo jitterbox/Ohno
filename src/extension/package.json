@@ -1,0 +1,235 @@
+{
+  "name": "ohno",
+  "displayName": "Ohno — Algorithmic Complexity",
+  "description": "Inline Big-O time and space complexity estimates for functions in the focused editor, with confidence levels, derivations, and on-demand deep analysis.",
+  "version": "0.1.0",
+  "publisher": "ohno-dev",
+  "license": "MIT",
+  "engines": {
+    "vscode": "^1.96.0"
+  },
+  "categories": [
+    "Other",
+    "Visualization",
+    "Education"
+  ],
+  "keywords": [
+    "big-o",
+    "complexity",
+    "performance",
+    "analysis",
+    "csharp",
+    "typescript"
+  ],
+  "activationEvents": [
+    "onLanguage:csharp",
+    "onLanguage:typescript"
+  ],
+  "icon": "media/icon.png",
+  "main": "./dist/extension.js",
+  "contributes": {
+    "configuration": {
+      "title": "Ohno",
+      "properties": {
+        "ohno.enabled": {
+          "type": "boolean",
+          "default": true,
+          "description": "Enable Ohno complexity annotations."
+        },
+        "ohno.languages.csharp.enabled": {
+          "type": "boolean",
+          "default": true,
+          "description": "Enable complexity analysis for C# files."
+        },
+        "ohno.languages.typescript.enabled": {
+          "type": "boolean",
+          "default": true,
+          "description": "Enable complexity analysis for TypeScript files."
+        },
+        "ohno.analysis.tier": {
+          "type": "string",
+          "enum": [
+            "fast",
+            "deep"
+          ],
+          "default": "fast",
+          "description": "Analysis tier. 'fast' runs automatically on edit; 'deep' performs full solution-wide semantic analysis and is only run on demand unless selected here."
+        },
+        "ohno.annotations.mode": {
+          "type": "string",
+          "enum": [
+            "inline",
+            "codelens",
+            "off"
+          ],
+          "default": "inline",
+          "description": "How complexity annotations are displayed: inline end-of-line decorations, CodeLens above functions, or off."
+        },
+        "ohno.annotations.nestingDepth": {
+          "type": "number",
+          "default": 2,
+          "minimum": 0,
+          "maximum": 6,
+          "description": "How many block-nesting levels below the function receive their own subtotal annotations (0 = function totals only)."
+        },
+        "ohno.annotations.showSpace": {
+          "type": "boolean",
+          "default": true,
+          "description": "Include auxiliary space complexity in annotations."
+        },
+        "ohno.annotations.showConfidence": {
+          "type": "boolean",
+          "default": true,
+          "description": "Include the confidence indicator in annotations."
+        },
+        "ohno.performance.debounceMs": {
+          "type": "number",
+          "default": 250,
+          "minimum": 50,
+          "description": "Debounce delay before re-analyzing after edits."
+        },
+        "ohno.performance.maxFileSizeKb": {
+          "type": "number",
+          "default": 500,
+          "description": "Skip analysis for files larger than this size (KB). 0 disables the limit."
+        },
+        "ohno.csharp.analyzerPath": {
+          "type": "string",
+          "default": "",
+          "description": "Override path to the Ohno C# analyzer server executable. Empty uses the bundled server."
+        },
+        "ohno.server.logLevel": {
+          "type": "string",
+          "enum": [
+            "error",
+            "warn",
+            "info",
+            "debug"
+          ],
+          "default": "warn",
+          "description": "Log level for the analyzer server (written to the Ohno output channel)."
+        }
+      }
+    },
+    "commands": [
+      {
+        "command": "ohno.runDeepAnalysis",
+        "title": "Run Deep Analysis",
+        "category": "Ohno",
+        "icon": "$(zap)"
+      },
+      {
+        "command": "ohno.showDerivation",
+        "title": "Show Complexity Derivation",
+        "category": "Ohno",
+        "icon": "$(list-tree)"
+      },
+      {
+        "command": "ohno.toggleAnnotations",
+        "title": "Toggle Complexity Annotations",
+        "category": "Ohno",
+        "icon": "$(eye)"
+      },
+      {
+        "command": "ohno.copyComplexity",
+        "title": "Copy Complexity Summary",
+        "category": "Ohno",
+        "icon": "$(copy)"
+      }
+    ],
+    "colors": [
+      {
+        "id": "ohno.inlineForeground",
+        "description": "Foreground color of inline complexity annotations.",
+        "defaults": {
+          "dark": "#99999999",
+          "light": "#66666699",
+          "highContrast": "#cccccc",
+          "highContrastLight": "#333333"
+        }
+      },
+      {
+        "id": "ohno.inlineBackground",
+        "description": "Background color of inline complexity annotations.",
+        "defaults": {
+          "dark": "#00000000",
+          "light": "#00000000",
+          "highContrast": "#00000000",
+          "highContrastLight": "#00000000"
+        }
+      },
+      {
+        "id": "ohno.confidenceHigh",
+        "description": "Color used for high-confidence complexity results.",
+        "defaults": {
+          "dark": "#4ec9b0",
+          "light": "#16825d",
+          "highContrast": "#4ec9b0",
+          "highContrastLight": "#16825d"
+        }
+      },
+      {
+        "id": "ohno.confidenceMedium",
+        "description": "Color used for medium-confidence complexity results.",
+        "defaults": {
+          "dark": "#dcdcaa",
+          "light": "#795e26",
+          "highContrast": "#dcdcaa",
+          "highContrastLight": "#795e26"
+        }
+      },
+      {
+        "id": "ohno.confidenceLow",
+        "description": "Color used for low-confidence complexity results.",
+        "defaults": {
+          "dark": "#ce9178",
+          "light": "#a31515",
+          "highContrast": "#ce9178",
+          "highContrastLight": "#a31515"
+        }
+      },
+      {
+        "id": "ohno.confidenceUnknown",
+        "description": "Color used when complexity cannot be determined.",
+        "defaults": {
+          "dark": "#808080",
+          "light": "#808080",
+          "highContrast": "#808080",
+          "highContrastLight": "#808080"
+        }
+      },
+      {
+        "id": "ohno.nestedForeground",
+        "description": "Foreground color of nested subtotal complexity annotations (faded by depth).",
+        "defaults": {
+          "dark": "#80808080",
+          "light": "#88888880",
+          "highContrast": "#a0a0a0",
+          "highContrastLight": "#606060"
+        }
+      }
+    ]
+  },
+  "scripts": {
+    "compile": "node esbuild.config.mjs",
+    "watch": "node esbuild.config.mjs --watch",
+    "test": "vitest run",
+    "test:e2e": "playwright test",
+    "test:vscode": "node ../../scripts/e2e-vscode.mjs",
+    "icons": "node ../../scripts/build-icons.mjs",
+    "package": "vsce package",
+    "vscode:prepublish": "npm run compile"
+  },
+  "dependencies": {
+    "typescript": "^5.7.0",
+    "vscode-jsonrpc": "^8.2.0"
+  },
+  "devDependencies": {
+    "@playwright/test": "^1.49.0",
+    "@types/node": "^22.10.0",
+    "@types/vscode": "^1.96.0",
+    "@vscode/test-electron": "^2.4.1",
+    "esbuild": "^0.24.0",
+    "vitest": "^2.1.8"
+  }
+}

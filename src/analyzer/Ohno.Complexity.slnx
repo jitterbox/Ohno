@@ -1,0 +1,8 @@
+<Solution>
+  <Project Path="ComplexityAnalyzer.Analyzers/ComplexityAnalyzer.Analyzers.csproj" />
+  <Project Path="ComplexityAnalyzer.Core/ComplexityAnalyzer.Core.csproj" />
+  <Project Path="ComplexityAnalyzer.CSharp/ComplexityAnalyzer.CSharp.csproj" />
+  <Project Path="ComplexityAnalyzer.DotNet/ComplexityAnalyzer.DotNet.csproj" />
+  <Project Path="ComplexityAnalyzer.Server/ComplexityAnalyzer.Server.csproj" />
+  <Project Path="ComplexityAnalyzer.Tests/ComplexityAnalyzer.Tests.csproj" />
+</Solution>

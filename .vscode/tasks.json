@@ -1,0 +1,25 @@
+{
+  "version": "2.0.0",
+  "tasks": [
+    {
+      "label": "npm: compile",
+      "type": "npm",
+      "script": "compile",
+      "path": "src/extension/",
+      "problemMatcher": [],
+      "group": {
+        "kind": "build",
+        "isDefault": true
+      }
+    },
+    {
+      "label": "dotnet: build-server",
+      "type": "shell",
+      "command": "dotnet build ComplexityAnalyzer.Server -c Debug",
+      "options": {
+        "cwd": "${workspaceFolder}/src/analyzer"
+      },
+      "problemMatcher": "$msCompile"
+    }
+  ]
+}

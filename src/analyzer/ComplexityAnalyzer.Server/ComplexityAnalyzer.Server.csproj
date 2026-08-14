@@ -1,0 +1,29 @@
+﻿<Project Sdk="Microsoft.NET.Sdk">
+
+  <ItemGroup>
+    <ProjectReference Include="..\ComplexityAnalyzer.Core\ComplexityAnalyzer.Core.csproj" />
+    <ProjectReference Include="..\ComplexityAnalyzer.CSharp\ComplexityAnalyzer.CSharp.csproj" />
+    <ProjectReference Include="..\ComplexityAnalyzer.DotNet\ComplexityAnalyzer.DotNet.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <!-- MSBuild.Framework / StringTools must not copy locally (MSBL001);
+         Locator loads them from the installed SDK. Workspaces.MSBuild and
+         Locator themselves must ship with the published server. -->
+    <PackageReference Include="Microsoft.Build.Framework" Version="17.11.48" ExcludeAssets="runtime" PrivateAssets="all" />
+    <PackageReference Include="Microsoft.NET.StringTools" Version="18.4.0" ExcludeAssets="runtime" PrivateAssets="all" />
+    <PackageReference Include="Microsoft.Build.Locator" Version="1.11.2" />
+    <PackageReference Include="Microsoft.CodeAnalysis.CSharp.Workspaces" Version="5.6.0" />
+    <PackageReference Include="Microsoft.CodeAnalysis.Workspaces.MSBuild" Version="5.6.0" />
+    <PackageReference Include="Newtonsoft.Json" Version="13.0.3" />
+    <PackageReference Include="StreamJsonRpc" Version="2.25.29" />
+  </ItemGroup>
+
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>net8.0</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+  </PropertyGroup>
+
+</Project>

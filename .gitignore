@@ -1,0 +1,26 @@
+# .NET
+bin/
+obj/
+*.user
+.vs/
+
+# Node
+node_modules/
+dist/
+out/
+*.vsix
+
+# Published analyzer (built by CI / local publish)
+src/extension/server/
+
+# Test artifacts
+test-results/
+playwright-report/
+.vscode-test/
+.vscode-ext-debug/
+.ohno-last-result.json
+coverage/
+
+# OS
+.DS_Store
+Thumbs.db

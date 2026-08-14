@@ -1,0 +1,55 @@
+name: CI
+
+on:
+  push:
+    branches: [main, master]
+  pull_request:
+
+jobs:
+  analyzer:
+    name: .NET analyzer
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: src/analyzer
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '8.0.x'
+      - run: dotnet restore
+      - run: dotnet build --no-restore --configuration Release
+      - run: dotnet test --no-build --configuration Release
+
+  extension:
+    name: VS Code extension
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: src/extension
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+          cache-dependency-path: src/extension/package-lock.json
+      - run: npm ci
+      - run: npm run compile
+      - run: npm test
+
+  publish-server:
+    name: Publish analyzer server
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '8.0.x'
+      - run: dotnet publish ComplexityAnalyzer.Server -c Release -r linux-x64 --self-contained -o ../../src/extension/server
+        working-directory: src/analyzer
+      - run: test -f src/extension/server/Microsoft.CodeAnalysis.Workspaces.MSBuild.dll
+      - run: test -f src/extension/server/Microsoft.Build.Locator.dll
+      # Playwright E2E against a real VS Code instance is opt-in:
+      #   OHNO_E2E=1 npm run test:e2e
+      # It launches VS Code via CDP (not _electron.launch).
