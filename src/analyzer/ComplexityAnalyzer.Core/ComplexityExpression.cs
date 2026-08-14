@@ -23,6 +23,10 @@ public sealed record PowerExpression(ComplexityExpression Base, ComplexityExpres
 /// <summary>Factorial of an expression, e.g. n!.</summary>
 public sealed record FactorialExpression(ComplexityExpression Inner) : ComplexityExpression;
 
+/// <summary>Binomial coefficient C(n, k).</summary>
+public sealed record BinomialExpression(
+    ComplexityExpression N, ComplexityExpression K) : ComplexityExpression;
+
 /// <summary>Product of factors, e.g. n * log(k).</summary>
 public sealed record ProductExpression(IImmutableList<ComplexityExpression> Factors) : ComplexityExpression;
 

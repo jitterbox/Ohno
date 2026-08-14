@@ -8,6 +8,7 @@ export type {
   EvidenceNode,
   FunctionComplexity,
   FunctionKind,
+  RecognizedPattern,
   InputDimension,
   LineRange,
 } from '../../../shared/protocol';

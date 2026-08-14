@@ -1,6 +1,12 @@
 import { describe, expect, it } from 'vitest';
-import { headlineText } from '../../src/ui/decorationFactory';
+import {
+  annotationAfter,
+  confidenceBackground,
+  headlineRender,
+  headlineText,
+} from '../../src/ui/decorationFactory';
 import { toCssInjection } from '../../src/ui/cssInjection';
+import { ThemeColor } from 'vscode';
 import type { FunctionComplexity } from '../../src/analysis/types';
 import type { OhnoConfig } from '../../src/config';
 
@@ -19,15 +25,18 @@ const fn: FunctionComplexity = {
   evidence: { kind: 'loop', label: 'foreach', cost: 'n log k', children: [] },
   warnings: [],
   boundingSuggestions: [],
+  explanation: 'Linearithmic time',
+  patterns: [],
+  confidenceReasons: [],
   tier: 'fast',
 };
 
 const config: OhnoConfig = {
   enabled: true,
-  csharpEnabled: true,
-  typescriptEnabled: true,
+  languages: { csharp: true },
   tier: 'fast',
   mode: 'inline',
+  showInline: true,
   nestingDepth: 2,
   showSpace: true,
   showConfidence: true,
@@ -58,5 +67,30 @@ describe('toCssInjection', () => {
     });
     expect(css.startsWith('text-decoration:none;')).toBe(true);
     expect(css).toContain('white-space:pre');
+  });
+});
+
+describe('annotationAfter', () => {
+  it('shades from one character before the text', () => {
+    const after = annotationAfter(
+      'O(n) · O(1)',
+      'ohno.confidenceHigh',
+      'ohno.inlineBackgroundHigh',
+    );
+    expect(after.contentText).toBe('O(n) · O(1)');
+    expect(after.color).toEqual(new ThemeColor('ohno.confidenceHigh'));
+    expect(after.backgroundColor).toEqual(
+      new ThemeColor('ohno.inlineBackgroundHigh'),
+    );
+    expect(String(after.textDecoration)).toContain('padding-left:1ch');
+  });
+});
+
+describe('headlineRender', () => {
+  it('uses the confidence wash', () => {
+    const after = headlineRender(fn, config);
+    expect(after.backgroundColor).toEqual(
+      new ThemeColor(confidenceBackground('high')),
+    );
   });
 });

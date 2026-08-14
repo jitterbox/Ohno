@@ -1,10 +1,15 @@
 {
   "name": "ohno",
-  "displayName": "Ohno — Algorithmic Complexity",
+  "displayName": "Oʰ(nᵒ) — Algorithmic Complexity",
   "description": "Inline Big-O time and space complexity estimates for functions in the focused editor, with confidence levels, derivations, and on-demand deep analysis.",
   "version": "0.1.0",
   "publisher": "ohno-dev",
   "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/jitterbox/Ohno.git",
+    "directory": "src/extension"
+  },
   "engines": {
     "vscode": "^1.96.0"
   },
@@ -18,42 +23,39 @@
     "complexity",
     "performance",
     "analysis",
-    "csharp",
-    "typescript"
+    "csharp"
   ],
   "activationEvents": [
     "onLanguage:csharp",
-    "onLanguage:typescript"
+    "onView:ohno.summary",
+    "onView:ohno.derivation"
   ],
   "icon": "media/icon.png",
   "main": "./dist/extension.js",
   "contributes": {
-    "configuration": {
-      "title": "Ohno",
-      "properties": {
-        "ohno.enabled": {
+    "configuration": [
+      {
+        "title": "Oʰ(nᵒ)",
+        "properties": {
+          "ohno.enabled": {
+            "type": "boolean",
+            "default": true,
+            "description": "Enable Ohno complexity annotations."
+          },
+          "ohno.analysis.tier": {
+            "type": "string",
+            "enum": [
+              "fast",
+              "deep"
+            ],
+            "default": "fast",
+            "description": "Reserved. Automatic analysis always uses the fast tier; deep analysis runs only via 'Ohno: Run Deep Analysis'.",
+            "markdownDeprecationMessage": "Automatic analysis is always fast. Use the 'Ohno: Run Deep Analysis' command for solution-wide analysis."
+          },
+        "ohno.annotations.showInline": {
           "type": "boolean",
           "default": true,
-          "description": "Enable Ohno complexity annotations."
-        },
-        "ohno.languages.csharp.enabled": {
-          "type": "boolean",
-          "default": true,
-          "description": "Enable complexity analysis for C# files."
-        },
-        "ohno.languages.typescript.enabled": {
-          "type": "boolean",
-          "default": true,
-          "description": "Enable complexity analysis for TypeScript files."
-        },
-        "ohno.analysis.tier": {
-          "type": "string",
-          "enum": [
-            "fast",
-            "deep"
-          ],
-          "default": "fast",
-          "description": "Analysis tier. 'fast' runs automatically on edit; 'deep' performs full solution-wide semantic analysis and is only run on demand unless selected here."
+          "description": "Show complexity estimates as inline end-of-line annotations in the editor."
         },
         "ohno.annotations.mode": {
           "type": "string",
@@ -109,34 +111,99 @@
           "default": "warn",
           "description": "Log level for the analyzer server (written to the Ohno output channel)."
         }
+        }
+      },
+      {
+        "title": "Oʰ(nᵒ) > Languages",
+        "properties": {
+          "ohno.languages.csharp": {
+            "type": "boolean",
+            "default": true,
+            "order": 1,
+            "markdownDescription": "Analyze **C#** files. C# is the only built-in language."
+          }
+        }
       }
-    },
+    ],
     "commands": [
       {
         "command": "ohno.runDeepAnalysis",
         "title": "Run Deep Analysis",
-        "category": "Ohno",
+        "category": "Oʰ(nᵒ)",
         "icon": "$(zap)"
       },
       {
         "command": "ohno.showDerivation",
         "title": "Show Complexity Derivation",
-        "category": "Ohno",
+        "category": "Oʰ(nᵒ)",
         "icon": "$(list-tree)"
       },
       {
         "command": "ohno.toggleAnnotations",
         "title": "Toggle Complexity Annotations",
-        "category": "Ohno",
+        "category": "Oʰ(nᵒ)",
         "icon": "$(eye)"
       },
       {
         "command": "ohno.copyComplexity",
         "title": "Copy Complexity Summary",
-        "category": "Ohno",
+        "category": "Oʰ(nᵒ)",
         "icon": "$(copy)"
+      },
+      {
+        "command": "ohno.focusComplexity",
+        "title": "Focus Complexity Panel",
+        "category": "Oʰ(nᵒ)",
+        "icon": "$(list-tree)"
       }
     ],
+    "viewsContainers": {
+      "activitybar": [
+        {
+          "id": "ohno",
+          "title": "Complexity",
+          "icon": "media/ohno-activity.svg"
+        }
+      ]
+    },
+    "views": {
+      "ohno": [
+        {
+          "id": "ohno.summary",
+          "name": "Summary",
+          "contextualTitle": "Complexity"
+        },
+        {
+          "id": "ohno.derivation",
+          "name": "Derivation",
+          "contextualTitle": "Complexity"
+        }
+      ]
+    },
+    "viewsWelcome": [
+      {
+        "view": "ohno.summary",
+        "contents": "Open a C# file and place the cursor in a function to see its complexity analysis."
+      },
+      {
+        "view": "ohno.derivation",
+        "contents": "Derivation nodes appear here after a function is analyzed. Click a node to select its source range."
+      }
+    ],
+    "menus": {
+      "view/title": [
+        {
+          "command": "ohno.runDeepAnalysis",
+          "when": "view == ohno.summary || view == ohno.derivation",
+          "group": "navigation"
+        },
+        {
+          "command": "ohno.copyComplexity",
+          "when": "view == ohno.summary || view == ohno.derivation",
+          "group": "navigation"
+        }
+      ]
+    },
     "colors": [
       {
         "id": "ohno.inlineForeground",
@@ -150,12 +217,62 @@
       },
       {
         "id": "ohno.inlineBackground",
-        "description": "Background color of inline complexity annotations.",
+        "description": "Fallback background of inline complexity annotations.",
         "defaults": {
-          "dark": "#00000000",
-          "light": "#00000000",
-          "highContrast": "#00000000",
-          "highContrastLight": "#00000000"
+          "dark": "#80808033",
+          "light": "#80808026",
+          "highContrast": "#80808055",
+          "highContrastLight": "#80808040"
+        }
+      },
+      {
+        "id": "ohno.inlineBackgroundHigh",
+        "description": "Translucent background for high-confidence annotations.",
+        "defaults": {
+          "dark": "#4ec9b033",
+          "light": "#16825d26",
+          "highContrast": "#4ec9b055",
+          "highContrastLight": "#16825d40"
+        }
+      },
+      {
+        "id": "ohno.inlineBackgroundMedium",
+        "description": "Translucent background for medium-confidence annotations.",
+        "defaults": {
+          "dark": "#dcdcaa33",
+          "light": "#795e2626",
+          "highContrast": "#dcdcaa55",
+          "highContrastLight": "#795e2640"
+        }
+      },
+      {
+        "id": "ohno.inlineBackgroundLow",
+        "description": "Translucent background for low-confidence annotations.",
+        "defaults": {
+          "dark": "#ce917833",
+          "light": "#a3151526",
+          "highContrast": "#ce917855",
+          "highContrastLight": "#a3151540"
+        }
+      },
+      {
+        "id": "ohno.inlineBackgroundUnknown",
+        "description": "Translucent background when complexity is unknown.",
+        "defaults": {
+          "dark": "#80808033",
+          "light": "#80808026",
+          "highContrast": "#80808055",
+          "highContrastLight": "#80808040"
+        }
+      },
+      {
+        "id": "ohno.inlineBackgroundNested",
+        "description": "Translucent background of nested subtotal annotations.",
+        "defaults": {
+          "dark": "#80808028",
+          "light": "#88888822",
+          "highContrast": "#80808044",
+          "highContrastLight": "#88888833"
         }
       },
       {
@@ -217,7 +334,7 @@
     "test:e2e": "playwright test",
     "test:vscode": "node ../../scripts/e2e-vscode.mjs",
     "icons": "node ../../scripts/build-icons.mjs",
-    "package": "vsce package",
+    "package": "vsce package --no-rewrite-relative-links",
     "vscode:prepublish": "npm run compile"
   },
   "dependencies": {

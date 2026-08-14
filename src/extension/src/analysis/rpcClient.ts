@@ -5,11 +5,14 @@ import {
   createMessageConnection,
   StreamMessageReader,
   StreamMessageWriter,
+  type CancellationToken,
   type MessageConnection,
 } from 'vscode-jsonrpc/node';
 import type { AnalyzeRequest, AnalyzeResponse } from './types';
 import { ProtocolMethods } from './types';
 import { normalizeAnalyzeResponse } from './normalize';
+
+const INIT_TIMEOUT_MS = 15_000;
 
 export class AnalyzerRpcClient {
   private process: ChildProcess | undefined;
@@ -21,21 +24,23 @@ export class AnalyzerRpcClient {
     private readonly log: (message: string) => void,
   ) {}
 
-  async analyze(request: AnalyzeRequest): Promise<AnalyzeResponse> {
+  async analyze(
+    request: AnalyzeRequest,
+    token?: CancellationToken,
+  ): Promise<AnalyzeResponse> {
     const connection = await this.ensure();
-    const raw = await connection.sendRequest(
-      ProtocolMethods.analyze,
-      request,
-    );
+    const raw = await this.send(
+      connection, ProtocolMethods.analyze, request, token);
     return normalizeAnalyzeResponse(raw);
   }
 
-  async analyzeDeep(request: AnalyzeRequest): Promise<AnalyzeResponse> {
+  async analyzeDeep(
+    request: AnalyzeRequest,
+    token?: CancellationToken,
+  ): Promise<AnalyzeResponse> {
     const connection = await this.ensure();
-    const raw = await connection.sendRequest(
-      ProtocolMethods.analyzeDeep,
-      request,
-    );
+    const raw = await this.send(
+      connection, ProtocolMethods.analyzeDeep, request, token);
     return normalizeAnalyzeResponse(raw);
   }
 
@@ -53,9 +58,20 @@ export class AnalyzerRpcClient {
       // Process may already be gone.
     }
     this.connection?.dispose();
-    this.process?.kill();
+    this.kill(this.process);
     this.connection = undefined;
     this.process = undefined;
+  }
+
+  private send(
+    connection: MessageConnection,
+    method: string,
+    params: unknown,
+    token?: CancellationToken,
+  ): Promise<unknown> {
+    return token
+      ? connection.sendRequest(method, params, token)
+      : connection.sendRequest(method, params);
   }
 
   private async ensure(): Promise<MessageConnection> {
@@ -77,18 +93,32 @@ export class AnalyzerRpcClient {
         return;
       }
 
+      let settled = false;
       const child = spawn(this.serverPath, [], {
         stdio: ['pipe', 'pipe', 'pipe'],
+        windowsHide: true,
       });
       this.process = child;
       child.stderr?.on('data', (chunk: Buffer) => {
         this.log(chunk.toString());
       });
-      child.on('error', reject);
+
+      const fail = (error: Error): void => {
+        if (settled) return;
+        settled = true;
+        clearTimeout(timer);
+        this.kill(child);
+        reject(error);
+      };
+
+      child.on('error', (error) => fail(error));
       child.on('exit', (code) => {
         this.log(`analyzer exited (${code ?? '?'})`);
-        this.connection = undefined;
-        this.process = undefined;
+        if (this.process === child) {
+          this.connection = undefined;
+          this.process = undefined;
+        }
+        fail(new Error(`Analyzer exited (${code ?? '?'})`));
       });
 
       const connection = createMessageConnection(
@@ -96,12 +126,32 @@ export class AnalyzerRpcClient {
         new StreamMessageWriter(child.stdin!),
       );
       connection.listen();
+      const timer = setTimeout(() => {
+        fail(new Error('Analyzer initialize timed out'));
+      }, INIT_TIMEOUT_MS);
       connection
         .sendRequest(ProtocolMethods.initialize)
-        .then(() => resolve(connection))
-        .catch(reject);
+        .then(() => {
+          if (settled) return;
+          settled = true;
+          clearTimeout(timer);
+          resolve(connection);
+        })
+        .catch((error: Error) => fail(error));
     });
   }
+
+  private kill(child: ChildProcess | undefined): void {
+    if (!child) return;
+    try { child.kill(); } catch { /* already gone */ }
+    if (this.process === child) this.process = undefined;
+  }
+}
+
+export function serverExecutableNames(): string[] {
+  return process.platform === 'win32'
+    ? ['ComplexityAnalyzer.Server.exe', 'ComplexityAnalyzer.Server']
+    : ['ComplexityAnalyzer.Server', 'ComplexityAnalyzer.Server.exe'];
 }
 
 export function resolveServerPath(
@@ -109,11 +159,9 @@ export function resolveServerPath(
   override: string,
 ): string {
   if (override) return override;
-  const names = process.platform === 'win32'
-    ? ['ComplexityAnalyzer.Server.exe']
-    : ['ComplexityAnalyzer.Server'];
-  const candidates = [
-    path.join(extensionPath, 'server', names[0]),
+  const names = serverExecutableNames();
+  const dirs = [
+    path.join(extensionPath, 'server'),
     path.join(
       extensionPath,
       '..',
@@ -122,8 +170,22 @@ export function resolveServerPath(
       'bin',
       'Debug',
       'net8.0',
-      names[0],
+    ),
+    path.join(
+      extensionPath,
+      '..',
+      'analyzer',
+      'ComplexityAnalyzer.Server',
+      'bin',
+      'Release',
+      'net8.0',
     ),
   ];
-  return candidates.find((c) => fs.existsSync(c)) ?? candidates[0];
+  for (const dir of dirs) {
+    for (const name of names) {
+      const candidate = path.join(dir, name);
+      if (fs.existsSync(candidate)) return candidate;
+    }
+  }
+  return path.join(dirs[0], names[0]);
 }

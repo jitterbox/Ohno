@@ -7,6 +7,9 @@ namespace ComplexityAnalyzer.Core;
 /// distribution, constant elimination, dominance reduction, and canonical
 /// ordering. Independent dimensions are never collapsed — O(n + m) stays
 /// O(n + m) unless a relationship between n and m is known.
+/// Dominance: factorial &gt; exponential &gt; polynomial &gt; log.
+/// A term with an extra opaque C(name) is never absorbed by a term
+/// that lacks that call.
 /// </summary>
 public static class ComplexitySimplifier
 {
@@ -31,6 +34,10 @@ public static class ComplexitySimplifier
 
             case FactorialExpression factorial:
                 return Cx.Factorial(SimplifyNode(factorial.Inner));
+
+            case BinomialExpression binomial:
+                return Cx.Binomial(
+                    SimplifyNode(binomial.N), SimplifyNode(binomial.K));
 
             case LogExpression log:
                 return SimplifyLog(SimplifyNode(log.Inner));
@@ -178,6 +185,10 @@ public static class ComplexitySimplifier
 
             case FactorialExpression factorial:
                 return new FactorialExpression(CanonicalOrder(factorial.Inner));
+
+            case BinomialExpression binomial:
+                return new BinomialExpression(
+                    CanonicalOrder(binomial.N), CanonicalOrder(binomial.K));
 
             default:
                 return expression;

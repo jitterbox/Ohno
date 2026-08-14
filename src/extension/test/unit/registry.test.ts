@@ -49,6 +49,9 @@ describe('ResultStore', () => {
         evidence: { kind: 'sequence', label: 'body', cost: 'n', children: [] },
         warnings: [],
         boundingSuggestions: [],
+        explanation: 'Linear time',
+        patterns: [],
+        confidenceReasons: [],
         tier: 'fast',
       }],
     };

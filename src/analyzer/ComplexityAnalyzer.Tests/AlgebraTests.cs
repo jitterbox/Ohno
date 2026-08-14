@@ -52,6 +52,22 @@ public class AlgebraTests
     }
 
     [Fact]
+    public void NodeWalkDominatesSeededHeap()
+    {
+        var nLogK = Cx.Mul(Cx.Var("n"), Cx.Log(Cx.Var("k")));
+        var kLogK = Cx.Mul(Cx.Var("k"), Cx.Log(Cx.Var("k")));
+        Assert.Equal("n log k", Simplify(Cx.Add(nLogK, kLogK)));
+    }
+
+    [Fact]
+    public void VerticesPlusEdges_TimesLog_Distributes()
+    {
+        var sum = Cx.Add(Cx.Var("n"), Cx.Var("m"));
+        var product = Cx.Mul(sum, Cx.Log(Cx.Var("n")));
+        Assert.Equal("m log n + n log n", Simplify(product));
+    }
+
+    [Fact]
     public void ProductDistributesAndSimplifies()
     {
         // n * (1 + log k) => n + n log k => n log k

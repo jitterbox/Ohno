@@ -6,6 +6,21 @@ using Microsoft.CodeAnalysis.Operations;
 
 namespace ComplexityAnalyzer.CSharp;
 
+/// <summary>
+/// Walks a method as an <see cref="IOperation"/> tree and composes
+/// symbolic time and peak auxiliary space.
+/// </summary>
+/// <remarks>
+/// Bodies come from <see cref="SemanticModel.GetOperation(SyntaxNode)"/>,
+/// which yields a language-agnostic semantic graph rather than raw syntax.
+/// See
+/// <see href="https://learn.microsoft.com/dotnet/api/microsoft.codeanalysis.ioperation">IOperation</see>
+/// and
+/// <see href="https://learn.microsoft.com/dotnet/api/microsoft.codeanalysis.semanticmodel.getoperation">GetOperation</see>.
+/// Local-function declarations are not executed at the declaration site;
+/// cost is paid at each call. Recursive methods are classified by
+/// <see cref="RecurrenceAnalyzer"/> instead of unrolling the tree.
+/// </remarks>
 public sealed partial class CSharpMethodAnalyzer
 {
     private readonly OperationCatalog _catalog;
@@ -20,7 +35,7 @@ public sealed partial class CSharpMethodAnalyzer
         SemanticModel model,
         AnalysisTier tier)
     {
-        var state = new AnalysisState(tier);
+        var state = new AnalysisState(tier) { Catalog = _catalog };
         DimensionInferrer.Infer(method, state);
         var cost = AnalyzeSymbol(method, model, state);
         var time = ComplexitySimplifier.Simplify(cost.Time);
@@ -28,10 +43,15 @@ public sealed partial class CSharpMethodAnalyzer
             CostComposer.Peak(state.Retained.Append(cost.Space)));
         var confidence = Downgrade(cost, time);
         var evidence = EvidencePruner.Prune(cost.Evidence);
-        var warnings = cost.Warnings
-            .Concat(state.Warnings)
-            .DistinctBy(w => w.Message)
-            .ToArray();
+        var body = TryGetBody(method, model);
+        var patterns = PatternRecognizer.Recognize(method, body);
+        time = PatternApplicator.ApplyTime(time, patterns);
+        space = PatternApplicator.ApplySpace(space, patterns);
+        var assessed = ConfidenceAssessor.Assess(
+            confidence, patterns, state, time);
+        confidence = assessed.Confidence;
+        var explanation = ExplanationFormatter.Format(time, patterns);
+        var warnings = MergeWarnings(cost, state, patterns);
         var suggestions = cost.Suggestions
             .Concat(state.Suggestions)
             .ToArray();
@@ -43,7 +63,10 @@ public sealed partial class CSharpMethodAnalyzer
             state.Dimensions,
             evidence,
             warnings,
-            suggestions);
+            suggestions,
+            patterns,
+            explanation,
+            assessed.Reasons);
     }
 
     internal ComposedCost AnalyzeSymbol(
@@ -80,15 +103,40 @@ public sealed partial class CSharpMethodAnalyzer
         if (syntax is null)
             return UnknownCall(method.Name, null, "no syntax");
 
-        var operation = model.GetOperation(syntax);
-        var body = ExtractBody(operation, syntax, model);
+        var body = TryGetBody(method, model);
         if (body is null)
             return ComposedCost.Unit("method", method.Name, RoslynSpans.Of(syntax));
 
         var rec = RecurrenceAnalyzer.TrySolve(method, body, state);
         if (rec is not null) return rec;
 
+        CardinalityAnalyzer.Analyze(body, model, state);
         return Analyze(body, state);
+    }
+
+    private static IOperation? TryGetBody(
+        IMethodSymbol method, SemanticModel model)
+    {
+        var syntax = method.DeclaringSyntaxReferences
+            .FirstOrDefault()
+            ?.GetSyntax();
+        if (syntax is null) return null;
+        return ExtractBody(model.GetOperation(syntax), syntax, model);
+    }
+
+    private static IReadOnlyList<AnalysisWarning> MergeWarnings(
+        ComposedCost cost,
+        AnalysisState state,
+        IReadOnlyList<RecognizedPattern> patterns)
+    {
+        var fromPatterns = patterns
+            .Where(p => p.Effect == PatternEffect.Unknown)
+            .Select(p => new AnalysisWarning($"{p.Label}: {p.Reason}."));
+        return cost.Warnings
+            .Concat(state.Warnings)
+            .Concat(fromPatterns)
+            .DistinctBy(w => w.Message)
+            .ToArray();
     }
 
     private static IOperation? ExtractBody(
@@ -135,6 +183,7 @@ public sealed partial class CSharpMethodAnalyzer
             LogExpression l => new[] { l.Inner },
             PowerExpression p => new[] { p.Base, p.Exponent },
             FactorialExpression f => new[] { f.Inner },
+            BinomialExpression b => new[] { b.N, b.K },
             _ => Array.Empty<ComplexityExpression>(),
         };
 

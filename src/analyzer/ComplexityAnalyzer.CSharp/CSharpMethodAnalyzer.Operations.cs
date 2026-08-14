@@ -6,8 +6,45 @@ namespace ComplexityAnalyzer.CSharp;
 
 public sealed partial class CSharpMethodAnalyzer
 {
+    /// <summary>
+    /// Dispatches on <see cref="IOperation.Kind"/>. Prefer operation
+    /// interfaces over syntax so <c>for</c>, <c>foreach</c>, and
+    /// <c>while</c> share the same bound logic.
+    /// </summary>
+    /// <remarks>
+    /// Edge cases:
+    /// <list type="bullet">
+    /// <item>
+    /// <see cref="IForEachLoopOperation"/> also covers
+    /// <c>await foreach</c>
+    /// (<see href="https://learn.microsoft.com/dotnet/csharp/asynchronous-programming/generate-consume-asynchronous-stream">async streams</see>).
+    /// Pattern recognition treats those as opaque awaited work.
+    /// </item>
+    /// <item>
+    /// <see cref="IForToLoopOperation"/> is Visual Basic's
+    /// <c>For…To…Next</c>. C# does not produce it; the bound is not
+    /// inferred if one appears.
+    /// </item>
+    /// <item>
+    /// <see cref="ILocalFunctionOperation"/> is a declaration, not a
+    /// call. Analyzing the body here would double-count nested
+    /// generation (subsets, permutations, DFS).
+    /// </item>
+    /// <item>
+    /// <see cref="IDynamicInvocationOperation"/> has no static target
+    /// (<see href="https://learn.microsoft.com/dotnet/csharp/advanced-topics/interop/using-type-dynamic">dynamic</see>).
+    /// </item>
+    /// </list>
+    /// </remarks>
     internal ComposedCost Analyze(IOperation operation, AnalysisState state)
     {
+        if (operation.Syntax is not null
+            && state.UnreachableSyntax.Contains(operation.Syntax))
+        {
+            return ComposedCost.Unit(
+                "dead", "unreachable", RoslynSpans.Of(operation));
+        }
+
         return operation switch
         {
             IBlockOperation block => AnalyzeBlock(block, state),
@@ -16,7 +53,14 @@ public sealed partial class CSharpMethodAnalyzer
             IWhileLoopOperation loop => AnalyzeWhile(loop, state),
             IConditionalOperation cond => AnalyzeConditional(cond, state),
             IInvocationOperation call => AnalyzeInvocation(call, state),
+            IDynamicInvocationOperation dyn => UnknownDynamic(dyn),
+            IPropertyReferenceOperation prop =>
+                AnalyzePropertyRead(prop, state),
+            IBinaryOperation binary => AnalyzeBinary(binary, state),
             IObjectCreationOperation create => AnalyzeCreation(create, state),
+            IArrayCreationOperation array => AnalyzeArrayCreate(array, state),
+            ISimpleAssignmentOperation assign =>
+                AnalyzeAssignment(assign, state),
             IVariableDeclaratorOperation decl => AnalyzeDeclarator(decl, state),
             IExpressionStatementOperation expr =>
                 Analyze(expr.Operation, state),
@@ -26,9 +70,51 @@ public sealed partial class CSharpMethodAnalyzer
             ISwitchOperation sw => AnalyzeSwitch(sw, state),
             ITryOperation tryOp => AnalyzeTry(tryOp, state),
             IUsingOperation usingOp => Analyze(usingOp.Body, state),
-            IForToLoopOperation loop => Analyze(loop.Body, state),
+            IForToLoopOperation loop => AnalyzeForTo(loop, state),
+            ICollectionExpressionOperation coll =>
+                AnalyzeCollection(coll, state),
+            IInterpolatedStringOperation interp =>
+                AnalyzeInterpolated(interp, state),
+            IIncrementOrDecrementOperation inc =>
+                Analyze(inc.Target, state),
+            ILocalFunctionOperation local => ComposedCost.Unit(
+                "local",
+                local.Symbol.Name,
+                RoslynSpans.Of(local)),
             _ => AnalyzeChildren(operation, state),
         };
+    }
+
+    private ComposedCost AnalyzeCollection(
+        ICollectionExpressionOperation coll, AnalysisState state)
+    {
+        var size = CollectionSize(coll, state);
+        state.Retained.Add(size);
+        return ComposedCost.Of(
+            size, size, "alloc", "collection", RoslynSpans.Of(coll));
+    }
+
+    private static ComplexityExpression CollectionSize(
+        ICollectionExpressionOperation coll, AnalysisState state)
+    {
+        if (coll.Elements.Length == 0) return Cx.One;
+        return Cx.Add(coll.Elements.Select(e =>
+            e is ISpreadOperation spread
+                ? SizeResolver.Resolve(spread.Operand, state)
+                : Cx.One));
+    }
+
+    private ComposedCost AnalyzeInterpolated(
+        IInterpolatedStringOperation interp, AnalysisState state)
+    {
+        var sizes = interp.Parts.Select(p =>
+            p is IInterpolationOperation hole
+                ? SizeResolver.Resolve(hole.Expression, state)
+                : Cx.One);
+        var size = Cx.Add(sizes);
+        return ComposedCost.Of(
+            size, Cx.One, "string", "interpolated",
+            RoslynSpans.Of(interp));
     }
 
     private ComposedCost AnalyzeBlock(
@@ -62,7 +148,19 @@ public sealed partial class CSharpMethodAnalyzer
     {
         HeapBoundDetector.Detect(loop.Body, state);
         var (bound, label) = LoopBoundInferrer.Infer(loop, state);
-        return AnalyzeLoop(loop.Body, bound, label, loop, state);
+        if (state.CurrentLoopBound is not null
+            && LoopBoundInferrer.IsProgressOnly(loop.Body))
+        {
+            bound = Cx.One;
+            label = "amortized pointer step";
+        }
+
+        var previousFrontier = state.FrontierBound;
+        if (label.Contains("frontier", StringComparison.Ordinal))
+            state.FrontierBound = bound;
+        var cost = AnalyzeLoop(loop.Body, bound, label, loop, state);
+        state.FrontierBound = previousFrontier;
+        return cost;
     }
 
     private ComposedCost AnalyzeForEach(
@@ -72,8 +170,22 @@ public sealed partial class CSharpMethodAnalyzer
             return QueryableLoop(loop, state);
 
         HeapBoundDetector.Detect(loop.Body, state);
+        NoteElementSize(loop, state);
         var (bound, label) = LoopBoundInferrer.Infer(loop, state);
-        return AnalyzeLoop(loop.Body, bound, label, loop, state);
+        var move = MoveNextCost(loop, state);
+        if (move is null)
+            return AnalyzeLoop(loop.Body, bound, label, loop, state);
+
+        var previous = state.CurrentLoopBound;
+        state.CurrentLoopBound = bound;
+        var body = Analyze(loop.Body, state);
+        state.CurrentLoopBound = previous;
+        var combined = CostComposer.Sequential(
+            new[] { move, body }, RoslynSpans.Of(loop.Body));
+        NoteUnboundedHeaps(bound, state);
+        NoteLoopShape(label, state);
+        return CostComposer.Loop(
+            bound, combined, label, RoslynSpans.Of(loop));
     }
 
     private ComposedCost AnalyzeLoop(
@@ -88,7 +200,44 @@ public sealed partial class CSharpMethodAnalyzer
         var bodyCost = Analyze(body, state);
         state.CurrentLoopBound = previous;
         NoteUnboundedHeaps(bound, state);
+        NoteLoopShape(label, state);
         return CostComposer.Loop(bound, bodyCost, label, RoslynSpans.Of(loop));
+    }
+
+    private ComposedCost AnalyzeForTo(
+        IForToLoopOperation loop, AnalysisState state)
+    {
+        state.Note(
+            AnalysisConfidence.Medium,
+            "A for-to loop bound was not inferred from the range.");
+        return Analyze(loop.Body, state);
+    }
+
+    private static void NoteLoopShape(string label, AnalysisState state)
+    {
+        if (label.Contains("log", StringComparison.Ordinal))
+        {
+            state.Note(
+                AnalysisConfidence.Medium,
+                "Logarithmic bound assumed from a doubling or "
+                + "halving update; a different update may miss this.");
+        }
+
+        if (label.Contains("unknown bound", StringComparison.Ordinal))
+        {
+            state.Note(
+                AnalysisConfidence.Medium,
+                "Loop bound could not be read from the condition; "
+                + "n was assumed.");
+        }
+
+        if (label.Contains("frontier", StringComparison.Ordinal))
+        {
+            state.Note(
+                AnalysisConfidence.Medium,
+                "Frontier bound assumed from a visited array and "
+                + "queue.Count; another traversal shape may miss this.");
+        }
     }
 
     private ComposedCost AnalyzeConditional(
@@ -141,6 +290,112 @@ public sealed partial class CSharpMethodAnalyzer
         return CostComposer.Sequential(parts, RoslynSpans.Of(tryOp));
     }
 
+    private ComposedCost AnalyzeArrayCreate(
+        IArrayCreationOperation array, AnalysisState state)
+    {
+        var size = SizeResolver.Resolve(array, state);
+        state.Retained.Add(size);
+        return ComposedCost.Of(
+            size,
+            size,
+            "alloc",
+            "array",
+            RoslynSpans.Of(array));
+    }
+
+    private ComposedCost AnalyzePropertyRead(
+        IPropertyReferenceOperation prop, AnalysisState state)
+    {
+        if (prop.Parent is IAssignmentOperation) 
+            return AnalyzeChildren(prop, state);
+        var getter = prop.Property.GetMethod;
+        if (getter is null) return AnalyzeChildren(prop, state);
+        if (prop.Property.Name is "Length" or "Count" or "Chars")
+            return AnalyzeChildren(prop, state);
+        if (getter.DeclaringSyntaxReferences.Length == 0)
+            return AnalyzeChildren(prop, state);
+        if (prop.SemanticModel is not { } model)
+            return AnalyzeChildren(prop, state);
+        return AnalyzeSymbol(getter, model, state);
+    }
+
+    private ComposedCost AnalyzeBinary(
+        IBinaryOperation binary, AnalysisState state)
+    {
+        var op = binary.OperatorMethod;
+        if (op is null || op.DeclaringSyntaxReferences.Length == 0)
+            return AnalyzeChildren(binary, state);
+        if (binary.SemanticModel is not { } model)
+            return AnalyzeChildren(binary, state);
+        var callee = AnalyzeSymbol(op, model, state);
+        return CostComposer.Sequential(
+            new[]
+            {
+                Analyze(binary.LeftOperand, state),
+                Analyze(binary.RightOperand, state),
+                callee,
+            },
+            RoslynSpans.Of(binary));
+    }
+
+    private ComposedCost? MoveNextCost(
+        IForEachLoopOperation loop, AnalysisState state)
+    {
+        var collection = loop.Collection.Type as INamedTypeSymbol;
+        if (collection is null) return null;
+        var move = collection.GetTypeMembers()
+            .SelectMany(t => t.GetMembers("MoveNext"))
+            .OfType<IMethodSymbol>()
+            .FirstOrDefault(m => m.DeclaringSyntaxReferences.Length > 0);
+        if (move is null)
+        {
+            var getEnum = collection.GetMembers("GetEnumerator")
+                .OfType<IMethodSymbol>()
+                .FirstOrDefault();
+            move = getEnum?.ReturnType.GetMembers("MoveNext")
+                .OfType<IMethodSymbol>()
+                .FirstOrDefault(m => m.DeclaringSyntaxReferences.Length > 0);
+        }
+
+        if (move is null) return null;
+        if (loop.SemanticModel is not { } model) return null;
+        return AnalyzeSymbol(move, model, state);
+    }
+
+    private static ComposedCost UnknownDynamic(
+        IDynamicInvocationOperation call)
+    {
+        return UnknownCall(
+            "dynamic",
+            RoslynSpans.Of(call),
+            "dynamic or unresolved dispatch");
+    }
+
+    private ComposedCost AnalyzeAssignment(
+        ISimpleAssignmentOperation assign, AnalysisState state)
+    {
+        NoteIndexerWrite(assign.Target, state);
+        return CostComposer.Sequential(
+            new[]
+            {
+                Analyze(assign.Target, state),
+                Analyze(assign.Value, state),
+            },
+            RoslynSpans.Of(assign));
+    }
+
+    private static void NoteIndexerWrite(
+        IOperation target, AnalysisState state)
+    {
+        if (SizeResolver.Unwrap(target) is not IPropertyReferenceOperation prop)
+            return;
+        if (!prop.Property.IsIndexer) return;
+        var symbol = SizeResolver.TargetSymbol(prop.Instance);
+        if (symbol is null || state.CurrentLoopBound is null) return;
+        state.Sizes[symbol] = state.CurrentLoopBound;
+        state.Retained.Add(state.CurrentLoopBound);
+    }
+
     private ComposedCost AnalyzeDeclarator(
         IVariableDeclaratorOperation decl, AnalysisState state)
     {
@@ -151,6 +406,21 @@ public sealed partial class CSharpMethodAnalyzer
         TrackAlias(decl.Symbol, initializer, state);
         TrackCreation(decl.Symbol, initializer, state);
         return Analyze(initializer, state);
+    }
+
+    private static void NoteElementSize(
+        IForEachLoopOperation loop, AnalysisState state)
+    {
+        var local = loop.LoopControlVariable switch
+        {
+            IVariableDeclaratorOperation d => d.Symbol,
+            ILocalReferenceOperation l => l.Local,
+            _ => null,
+        };
+        if (local is null || state.Sizes.ContainsKey(local)) return;
+        if (!DimensionInferrer.IsCollection(local.Type)) return;
+        state.Sizes[local] = DimensionInferrer.Fresh(
+            state, $"{local.Name}.Length");
     }
 
     private static void TrackAlias(
@@ -173,7 +443,28 @@ public sealed partial class CSharpMethodAnalyzer
         if (unwrapped is IObjectCreationOperation create
             && IsPriorityQueue(create.Type))
         {
+            if (create.Arguments.Length == 1)
+            {
+                state.Sizes[local] = SizeResolver.Resolve(
+                    create.Arguments[0].Value, state);
+                return;
+            }
+
             state.Sizes[local] = Cx.One;
+            return;
+        }
+
+        if (unwrapped is IArrayCreationOperation array)
+        {
+            state.Sizes[local] = SizeResolver.Resolve(array, state);
+            return;
+        }
+
+        if (unwrapped is IInvocationOperation call
+            && call.Type is not null
+            && DimensionInferrer.IsCollection(call.Type))
+        {
+            state.Sizes[local] = SizeResolver.Resolve(call, state);
         }
     }
 

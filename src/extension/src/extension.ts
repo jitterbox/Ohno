@@ -1,14 +1,14 @@
 import * as vscode from 'vscode';
 import { readConfig } from './config';
+import { documentSelectors } from './analysis/languages';
 import { AnalyzerRegistry } from './analysis/registry';
 import { CSharpAnalyzer } from './analysis/csharpAnalyzer';
-import { TypeScriptAnalyzer } from './analysis/typescriptAnalyzer';
 import { AnalyzerRpcClient, resolveServerPath } from './analysis/rpcClient';
 import { AnnotationController } from './ui/annotationController';
-import { ComplexityHoverProvider } from './ui/hoverProvider';
+// import { ComplexityHoverProvider } from './ui/hoverProvider';
 import { ComplexityCodeLensProvider } from './ui/codeLensProvider';
 import { ResultStore } from './ui/resultStore';
-import { showDerivation } from './ui/derivationPanel';
+import { ComplexityPanel } from './ui/complexityPanel';
 
 export function activate(context: vscode.ExtensionContext): void {
   const output = vscode.window.createOutputChannel('Ohno');
@@ -21,7 +21,6 @@ export function activate(context: vscode.ExtensionContext): void {
   );
   const client = new AnalyzerRpcClient(serverPath, (m) => output.appendLine(m));
   registry.register(new CSharpAnalyzer(client));
-  registry.register(new TypeScriptAnalyzer());
 
   const annotations = new AnnotationController(
     registry,
@@ -30,35 +29,40 @@ export function activate(context: vscode.ExtensionContext): void {
     output,
   );
   const lenses = new ComplexityCodeLensProvider(store);
+  const panel = new ComplexityPanel(store);
 
   context.subscriptions.push(
     output,
     registry,
     annotations,
-    vscode.languages.registerHoverProvider(
-      [{ language: 'csharp' }, { language: 'typescript' }],
-      new ComplexityHoverProvider(store),
-    ),
+    lenses,
+    panel,
+    // vscode.languages.registerHoverProvider(
+    //   documentSelectors(),
+    //   new ComplexityHoverProvider(store),
+    // ),
     vscode.languages.registerCodeLensProvider(
-      [{ language: 'csharp' }, { language: 'typescript' }],
+      documentSelectors(),
       lenses,
     ),
     vscode.commands.registerCommand('ohno.runDeepAnalysis', async (uri?: string) => {
+      await vscode.commands.executeCommand(
+        'workbench.view.extension.ohno',
+      );
       await annotations.runDeep(uri ? vscode.Uri.parse(uri) : undefined);
       lenses.refresh();
     }),
     vscode.commands.registerCommand(
       'ohno.showDerivation',
-      (uri?: string, id?: string) => {
-        const editor = vscode.window.activeTextEditor;
-        if (!editor) return;
-        const target = uri ? vscode.Uri.parse(uri) : editor.document.uri;
-        const fn = id
-          ? store.functionById(target, id)
-          : store.functionAt(target, editor.selection.active);
-        if (fn) showDerivation(fn);
+      async (uri?: string, id?: string) => {
+        await focusFunction(store, uri, id);
       },
     ),
+    vscode.commands.registerCommand('ohno.focusComplexity', async () => {
+      await vscode.commands.executeCommand(
+        'workbench.view.extension.ohno',
+      );
+    }),
     vscode.commands.registerCommand('ohno.toggleAnnotations', async () => {
       const cfg = vscode.workspace.getConfiguration('ohno');
       await cfg.update('enabled', !cfg.get('enabled', true), true);
@@ -81,19 +85,56 @@ export function activate(context: vscode.ExtensionContext): void {
     );
   }
 
-  const folder = vscode.workspace.workspaceFolders?.[0];
-  if (folder) {
-    const sln = vscode.workspace.findFiles('*.sln', undefined, 1).then((files) => {
-      if (files[0]) {
-        void client.setSolution(files[0].fsPath).catch((error) => {
-          output.appendLine(`setSolution failed: ${String(error)}`);
-        });
-      }
-    });
-    context.subscriptions.push({ dispose: () => void sln });
-  }
+  context.subscriptions.push(bindSolution(client, output));
 
   annotations.refresh();
+}
+
+async function focusFunction(
+  store: ResultStore,
+  uri?: string,
+  id?: string,
+): Promise<void> {
+  await vscode.commands.executeCommand('workbench.view.extension.ohno');
+  const editor = vscode.window.activeTextEditor;
+  if (!editor) return;
+  const target = uri ? vscode.Uri.parse(uri) : editor.document.uri;
+  const fn = id
+    ? store.functionById(target, id)
+    : store.functionAt(target, editor.selection.active);
+  if (!fn) return;
+  await vscode.commands.executeCommand(
+    'ohno.revealEvidence',
+    target.toString(),
+    fn.signatureRange,
+  );
+}
+
+function bindSolution(
+  client: AnalyzerRpcClient,
+  output: vscode.OutputChannel,
+): vscode.Disposable {
+  const work = vscode.workspace.findFiles(
+    '{**/*.sln,**/*.csproj}',
+    '{**/node_modules/**,**/bin/**,**/obj/**}',
+    8,
+  ).then((files) => {
+    const path = preferSolution(files);
+    if (!path) return;
+    void client.setSolution(path).catch((error) => {
+      output.appendLine(`setSolution failed: ${String(error)}`);
+    });
+  });
+  return { dispose: () => void work };
+}
+
+function preferSolution(files: vscode.Uri[]): string | undefined {
+  const sln = files.find((f) => f.fsPath.endsWith('.sln'));
+  if (sln) return sln.fsPath;
+  return [...files]
+    .filter((f) => f.fsPath.endsWith('.csproj'))
+    .sort((a, b) => a.fsPath.length - b.fsPath.length)[0]
+    ?.fsPath;
 }
 
 export function deactivate(): void {

@@ -13,7 +13,9 @@ internal static class SnippetAnalyzer
         var source = $$"""
             using System;
             using System.Collections.Generic;
+            using System.Collections.Immutable;
             using System.Linq;
+            using System.Text;
 
             public static class Snippet
             {
@@ -24,10 +26,13 @@ internal static class SnippetAnalyzer
     }
 
     public static ComplexityResult AnalyzeNamed(
-        string source, bool firstMethod = false, string? name = null)
+        string source,
+        bool firstMethod = false,
+        string? name = null,
+        AnalysisTier tier = AnalysisTier.Fast)
     {
         var compilation = CompilationFactory.Create(source, "SnippetTests");
-        var tree = compilation.SyntaxTrees.Single();
+        var tree = CompilationFactory.SourceTree(compilation);
         var model = compilation.GetSemanticModel(tree);
         var root = tree.GetRoot();
         var methodNode = root.DescendantNodes()
@@ -35,6 +40,6 @@ internal static class SnippetAnalyzer
             .First(m => firstMethod || m.Identifier.Text == name);
         var symbol = (IMethodSymbol)model.GetDeclaredSymbol(methodNode)!;
         return new CSharpMethodAnalyzer()
-            .Analyze(symbol, model, AnalysisTier.Fast);
+            .Analyze(symbol, model, tier);
     }
 }

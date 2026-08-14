@@ -4,6 +4,15 @@ using Microsoft.CodeAnalysis.Operations;
 
 namespace ComplexityAnalyzer.CSharp;
 
+/// <summary>
+/// Detects <c>if (collection.Count &gt; k) collection.Dequeue()</c>
+/// and records a heap/window size of k.
+/// </summary>
+/// <remarks>
+/// Used for bounded priority queues and sliding windows. A different
+/// eviction shape (<c>RemoveAt(0)</c>, <c>TryDequeue</c> only, or a
+/// cap on <c>Enqueue</c>) will not match. Confidence is Medium.
+/// </remarks>
 internal static class HeapBoundDetector
 {
     public static void Detect(IOperation body, AnalysisState state)
@@ -13,8 +22,14 @@ internal static class HeapBoundDetector
             if (operation is not IConditionalOperation cond) continue;
             if (!TryBound(cond.Condition, state, out var heap, out var bound))
                 continue;
-            if (!ContainsDequeue(cond.WhenTrue, heap)) continue;
+            if (!ContainsShrink(cond.WhenTrue, heap)) continue;
             state.HeapBounds[heap] = bound;
+            state.Sizes[heap] = bound;
+            state.Card(heap).Max = bound;
+            state.Note(
+                AnalysisConfidence.Medium,
+                "Collection size is assumed bounded by a Count > k "
+                + "+ Dequeue check; a different bound shape may miss this.");
         }
     }
 
@@ -49,15 +64,18 @@ internal static class HeapBoundDetector
         return true;
     }
 
-    private static bool ContainsDequeue(IOperation? body, ISymbol heap)
+    private static bool ContainsShrink(IOperation? body, ISymbol heap)
     {
         if (body is null) return false;
-        return Walk(body).Any(op =>
-            op is IInvocationOperation call
-            && call.TargetMethod.Name == "Dequeue"
+        return Walk(body).OfType<IInvocationOperation>().Any(call =>
+            IsShrink(call.TargetMethod.Name)
             && SymbolEqualityComparer.Default.Equals(
                 SizeResolver.TargetSymbol(call.Instance), heap));
     }
+
+    private static bool IsShrink(string name) =>
+        name is "Dequeue" or "TryDequeue" or "Pop" or "TryPop"
+            or "RemoveAt" or "Remove";
 
     private static IEnumerable<IOperation> Walk(IOperation root)
     {

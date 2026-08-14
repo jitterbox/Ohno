@@ -6,6 +6,10 @@
  *
  * The C# records in ComplexityAnalyzer.Server/Protocol/Contracts.cs
  * mirror these types; keep them in sync.
+ *
+ * `confidenceReasons` is empty when confidence is high. Below high it
+ * lists the assumptions that cap the result (idiom match, amortized
+ * catalog, unresolved call, opaque API).
  */
 
 export type AnalysisTier = 'fast' | 'deep';
@@ -82,7 +86,18 @@ export interface FunctionComplexity {
   evidence: EvidenceNode;
   warnings: AnalysisWarning[];
   boundingSuggestions: BoundingSuggestion[];
+  /** Plain-language gloss, or empty when none is honest. */
+  explanation: string;
+  patterns: RecognizedPattern[];
+  /** Why confidence is below high; empty when confidence is high. */
+  confidenceReasons: string[];
   tier: AnalysisTier;
+}
+
+export interface RecognizedPattern {
+  id: string;
+  label: string;
+  reason: string;
 }
 
 export interface AnalyzeRequest {
@@ -101,7 +116,7 @@ export interface AnalyzeResponse {
 }
 
 export interface SetSolutionContextRequest {
-  /** Absolute path to the .sln/.csproj used for deep analysis. */
+  /** Absolute path to the .sln/.csproj used for project-backed analysis. */
   solutionPath: string;
 }
 

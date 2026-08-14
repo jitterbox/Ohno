@@ -19,6 +19,8 @@ public static class ComplexityFormatter
             LogExpression log => $"log {FormatOperand(log.Inner)}",
             PowerExpression power => FormatPower(power),
             FactorialExpression factorial => $"{FormatOperand(factorial.Inner)}!",
+            BinomialExpression b =>
+                $"C({Format(b.N)}, {Format(b.K)})",
             ProductExpression product => FormatProduct(product),
             SumExpression sum => string.Join(" + ", sum.Terms.Select(Format)),
             FunctionCostExpression call => $"C({call.FunctionName})",

@@ -4,6 +4,13 @@ namespace ComplexityAnalyzer.Core;
 /// Confidence in a complexity result. Ordered so that combining results
 /// can take the minimum.
 /// </summary>
+/// <remarks>
+/// High is reserved for structurally resolved work (exact catalog
+/// costs, loops over <c>Length</c>/<c>Count</c>, <c>new T[n]</c>).
+/// Idiom matches (recurrences, heap bounds, retained allocations)
+/// are Medium and must list <c>ConfidenceReasons</c>. Unknown means
+/// no honest polynomial was claimed.
+/// </remarks>
 public enum AnalysisConfidence
 {
     /// <summary>A meaningful bound cannot be inferred.</summary>
@@ -58,6 +65,29 @@ public sealed record BoundingSuggestion(
     ComplexityExpression ResultingTime,
     ComplexityExpression ResultingSpace);
 
+/// <summary>
+/// A source-level pattern that affects how a bound should be read.
+/// </summary>
+public sealed record RecognizedPattern(
+    string Id,
+    string Label,
+    string Reason,
+    PatternEffect Effect,
+    string RangeExplanation = "");
+
+/// <summary>How a recognized pattern changes the reported result.</summary>
+public enum PatternEffect
+{
+    /// <summary>Keep the bound; name the pattern and assumption.</summary>
+    Annotate = 0,
+
+    /// <summary>No conclusive bound; report Unknown with a reason.</summary>
+    Unknown = 1,
+
+    /// <summary>Best/worst cases differ; state the range when possible.</summary>
+    Range = 2,
+}
+
 /// <summary>The structured result of analyzing a single function.</summary>
 public sealed record ComplexityResult(
     ComplexityExpression Time,
@@ -66,4 +96,7 @@ public sealed record ComplexityResult(
     IReadOnlyList<InputDimension> Dimensions,
     ComplexityEvidence Evidence,
     IReadOnlyList<AnalysisWarning> Warnings,
-    IReadOnlyList<BoundingSuggestion> BoundingSuggestions);
+    IReadOnlyList<BoundingSuggestion> BoundingSuggestions,
+    IReadOnlyList<RecognizedPattern> Patterns,
+    string Explanation,
+    IReadOnlyList<string> ConfidenceReasons);

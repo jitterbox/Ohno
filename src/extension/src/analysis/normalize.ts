@@ -38,7 +38,21 @@ function normalizeFn(raw: unknown): FunctionComplexity {
     boundingSuggestions: asArray(
       pick(r, 'boundingSuggestions', 'BoundingSuggestions'),
     ).map(normalizeSuggestion),
+    explanation: str(r, 'explanation', 'Explanation'),
+    patterns: asArray(pick(r, 'patterns', 'Patterns')).map(normalizePattern),
+    confidenceReasons: asArray(
+      pick(r, 'confidenceReasons', 'ConfidenceReasons'),
+    ).map((item) => typeof item === 'string' ? item : ''),
     tier: (str(r, 'tier', 'Tier') || 'fast') as FunctionComplexity['tier'],
+  };
+}
+
+function normalizePattern(raw: unknown): FunctionComplexity['patterns'][0] {
+  const r = asRecord(raw);
+  return {
+    id: str(r, 'id', 'Id'),
+    label: str(r, 'label', 'Label'),
+    reason: str(r, 'reason', 'Reason'),
   };
 }
 

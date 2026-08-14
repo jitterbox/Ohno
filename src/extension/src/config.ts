@@ -1,14 +1,18 @@
 import * as vscode from 'vscode';
+import {
+  BUILTIN_LANGUAGES,
+  defaultLanguageEnabled,
+} from './analysis/languages';
 
 export type AnalysisTier = 'fast' | 'deep';
 export type AnnotationMode = 'inline' | 'codelens' | 'off';
 
 export interface OhnoConfig {
   enabled: boolean;
-  csharpEnabled: boolean;
-  typescriptEnabled: boolean;
+  languages: Readonly<Record<string, boolean>>;
   tier: AnalysisTier;
   mode: AnnotationMode;
+  showInline: boolean;
   nestingDepth: number;
   showSpace: boolean;
   showConfidence: boolean;
@@ -22,10 +26,10 @@ export function readConfig(): OhnoConfig {
   const c = vscode.workspace.getConfiguration('ohno');
   return {
     enabled: c.get('enabled', true),
-    csharpEnabled: c.get('languages.csharp.enabled', true),
-    typescriptEnabled: c.get('languages.typescript.enabled', true),
+    languages: readLanguageFlags(c),
     tier: c.get('analysis.tier', 'fast'),
     mode: c.get('annotations.mode', 'inline'),
+    showInline: c.get('annotations.showInline', true),
     nestingDepth: c.get('annotations.nestingDepth', 2),
     showSpace: c.get('annotations.showSpace', true),
     showConfidence: c.get('annotations.showConfidence', true),
@@ -41,7 +45,32 @@ export function languageEnabled(
   config: OhnoConfig,
 ): boolean {
   if (!config.enabled) return false;
-  if (languageId === 'csharp') return config.csharpEnabled;
-  if (languageId === 'typescript') return config.typescriptEnabled;
-  return false;
+  if (!BUILTIN_LANGUAGES.some((item) => item.id === languageId)) {
+    return false;
+  }
+  if (Object.hasOwn(config.languages, languageId)) {
+    return config.languages[languageId];
+  }
+  return defaultLanguageEnabled(languageId);
+}
+
+function readLanguageFlags(
+  c: vscode.WorkspaceConfiguration,
+): Record<string, boolean> {
+  const flags: Record<string, boolean> = {};
+  for (const language of BUILTIN_LANGUAGES) {
+    flags[language.id] = languageFlag(c, language.id);
+  }
+  return flags;
+}
+
+function languageFlag(
+  c: vscode.WorkspaceConfiguration,
+  id: string,
+): boolean {
+  const current = c.get<boolean | undefined>(`languages.${id}`);
+  if (typeof current === 'boolean') return current;
+  const legacy = c.get<boolean | undefined>(`languages.${id}.enabled`);
+  if (typeof legacy === 'boolean') return legacy;
+  return defaultLanguageEnabled(id);
 }
