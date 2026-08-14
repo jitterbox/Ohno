@@ -1,4 +1,5 @@
 using ComplexityAnalyzer.Core;
+using ComplexityAnalyzer.CSharp;
 using Xunit;
 
 namespace ComplexityAnalyzer.Tests;
@@ -124,6 +125,141 @@ public class AcceptanceTests
         Assert.Equal("O(n)", time);
         Assert.Equal("O(1)", space);
         Assert.True(confidence >= AnalysisConfidence.Medium);
+    }
+
+    [Fact]
+    public void DictionaryIndexerWriteLoop()
+    {
+        var (time, space, _) = Run("""
+            static void Index(int[] nums)
+            {
+                var map = new Dictionary<int, int>();
+                for (var i = 0; i < nums.Length; i++)
+                    map[nums[i]] = i;
+            }
+            """);
+        Assert.Equal("O(n)", time);
+        Assert.Equal("O(n)", space);
+    }
+
+    [Fact]
+    public void RectangularArrayIsQuadraticSpace()
+    {
+        var (time, space, _) = Run("""
+            static int[,] CreateMatrix(int n) => new int[n, n];
+            """);
+        Assert.Equal("O(n²)", time);
+        Assert.Equal("O(n²)", space);
+    }
+
+    [Fact]
+    public void ImplicitArrayLiteralIsConstantSpace()
+    {
+        var (time, space, _) = Run("""
+            static int[] Pair(int a, int b) => new[] { a, b };
+            """);
+        Assert.Equal("O(1)", time);
+        Assert.Equal("O(1)", space);
+    }
+
+    [Fact]
+    public void MergeKLists_HeapWorklist()
+    {
+        var result = SnippetAnalyzer.AnalyzeNamed("""
+            using System.Collections.Generic;
+
+            public class Solution
+            {
+                public ListNode MergeKLists(ListNode[] lists)
+                {
+                    var heap = new PriorityQueue<ListNode, int>();
+                    foreach (var node in lists)
+                    {
+                        if (node != null)
+                            heap.Enqueue(node, node.val);
+                    }
+                    var dummy = new ListNode();
+                    var tail = dummy;
+                    while (heap.Count > 0)
+                    {
+                        var node = heap.Dequeue();
+                        tail.next = node;
+                        tail = node;
+                        if (node.next != null)
+                            heap.Enqueue(node.next, node.next.val);
+                    }
+                    return dummy.next;
+                }
+            }
+
+            public class ListNode
+            {
+                public int val;
+                public ListNode next;
+                public ListNode(int val = 0, ListNode next = null)
+                {
+                    this.val = val;
+                    this.next = next;
+                }
+            }
+            """, name: "MergeKLists");
+        var time = ComplexityFormatter.FormatBigO(result.Time);
+        var space = ComplexityFormatter.FormatBigO(
+            result.AuxiliarySpace);
+        Assert.Equal("O(n log k)", time);
+        Assert.Equal("O(k)", space);
+        Assert.Contains(result.Dimensions, d => d.Variable == "k");
+        Assert.Contains(result.Dimensions, d => d.Variable == "n");
+    }
+
+    [Fact]
+    public void MergeKLists_WithoutUsings_StillBindsHeap()
+    {
+        var source = """
+            public class Solution
+            {
+                public ListNode MergeKLists(ListNode[] lists)
+                {
+                    var heap = new PriorityQueue<ListNode, int>();
+                    foreach (var node in lists)
+                    {
+                        if (node != null)
+                            heap.Enqueue(node, node.val);
+                    }
+                    var dummy = new ListNode();
+                    var tail = dummy;
+                    while (heap.Count > 0)
+                    {
+                        var node = heap.Dequeue();
+                        tail.next = node;
+                        tail = node;
+                        if (node.next != null)
+                            heap.Enqueue(node.next, node.next.val);
+                    }
+                    return dummy.next;
+                }
+            }
+
+            public class ListNode
+            {
+                public int val;
+                public ListNode next;
+                public ListNode(int val = 0, ListNode next = null)
+                {
+                    this.val = val;
+                    this.next = next;
+                }
+            }
+            """;
+        var analysis = new CSharpFileAnalyzer()
+            .Analyze(source, AnalysisTier.Fast);
+        var result = analysis.Functions
+            .Single(f => f.Symbol.Name == "MergeKLists")
+            .Result;
+        Assert.Equal(
+            "O(n log k)", ComplexityFormatter.FormatBigO(result.Time));
+        Assert.Equal(
+            "O(k)", ComplexityFormatter.FormatBigO(result.AuxiliarySpace));
     }
 
     [Fact]

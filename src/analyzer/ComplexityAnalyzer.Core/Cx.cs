@@ -22,6 +22,10 @@ public static class Cx
     public static ComplexityExpression Factorial(ComplexityExpression inner) =>
         new FactorialExpression(inner);
 
+    public static ComplexityExpression Binomial(
+        ComplexityExpression n, ComplexityExpression k) =>
+        new BinomialExpression(n, k);
+
     public static ComplexityExpression Unknown(string reason) =>
         new UnknownExpression(reason);
 

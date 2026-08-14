@@ -1,0 +1,9 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24">
+  <rect x="3" y="3.5" width="18" height="17" rx="3.25"
+        fill="none" stroke="currentColor" stroke-width="1.5"/>
+  <text x="12" y="13.55" text-anchor="middle"
+        font-family="Segoe UI, Ubuntu, Cantarell, Helvetica Neue, sans-serif"
+        font-size="7" font-weight="700" fill="currentColor">O<tspan
+        font-size="4.2" baseline-shift="super">h</tspan>(n<tspan
+        font-size="4.2" baseline-shift="super">o</tspan>)</text>
+</svg>

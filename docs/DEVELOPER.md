@@ -1,0 +1,366 @@
+# Ohno developer guide
+
+This document is the theoretical and operational map of the analyzer.
+The [README](../README.md) is the product overview. This file is for
+people changing the engine, adding languages, or evaluating whether a
+bound is justified.
+
+## 1. What problem Ohno solves
+
+Ohno answers: **as a function of the input sizes visible in this
+method, how does local work and peak extra memory grow?**
+
+That is *algorithmic complexity* (Big-O / Θ-style bounds), not
+*software complexity* (how hard the source is to read or test).
+
+Microsoft already ships the latter:
+
+| Microsoft metric | What it measures | Official docs |
+|---|---|---|
+| Cyclomatic complexity (CA1502) | Number of independent paths through a control-flow graph: *E − N + 1* | [CA1502](https://learn.microsoft.com/dotnet/fundamentals/code-analysis/quality-rules/ca1502) |
+| Code metrics (VS) | Maintainability index, cyclomatic complexity, depth of inheritance, class coupling, lines of source/executable | [Code metrics values](https://learn.microsoft.com/visualstudio/code-quality/code-metrics-values) |
+| CA1501 / CA1505 / CA1506 | Inheritance depth, maintainability, class coupling | same family as CA1502 |
+
+A method with one `Array.Sort` has cyclomatic complexity 1 and time
+O(n log n). A method with twenty `if` statements and no loops has high
+cyclomatic complexity and time O(1). Ohno reports the first kind of
+number. CA1502 reports the second.
+
+Ohno's optional `ComplexityDiagnosticAnalyzer` (AL0001–AL0003) is a
+convenience diagnostic for the Big-O estimate. It is **not** a
+reimplementation of CA1502. See
+[DiagnosticAnalyzer](https://learn.microsoft.com/dotnet/api/microsoft.codeanalysis.diagnostics.diagnosticanalyzer).
+
+## 2. Theoretical model
+
+### 2.1 Expressions, not strings
+
+Bounds are immutable expression trees in `ComplexityAnalyzer.Core`:
+
+| Node | Meaning | Example |
+|---|---|---|
+| `ConstantExpression` | Θ(1) | `1` |
+| `VariableExpression` | An input dimension | `n`, `m`, `k` |
+| `LogExpression` | Log of a size | `log n` |
+| `PowerExpression` | Polynomial or exponential | `n²`, `2^n` |
+| `FactorialExpression` | `n!` | permutations |
+| `BinomialExpression` | `C(n, k)` | k-combinations |
+| `ProductExpression` / `SumExpression` | Compose | `n log k`, `n + m` |
+| `FunctionCostExpression` | Opaque named call | `C(Process)` |
+| `UnknownExpression` | No honest bound | `unknown` |
+
+`Cx` normalizes on construction (flatten, drop 1, combine `n * n` →
+`n²`). `ComplexitySimplifier` then applies Big-O rules: drop dominated
+terms, distribute products over sums, never collapse independent
+dimensions.
+
+Dominance order on a single variable: **factorial > exponential >
+polynomial > log**. `n * n!` dominates `n`. `n + m` stays `n + m`
+unless a relationship is known. An extra `C(name)` is never absorbed
+by a term that lacks that call.
+
+### 2.2 Time composition
+
+| Construct | Time |
+|---|---|
+| Sequence | Sum (then dominate) |
+| Loop | Bound × body |
+| `if` / `switch` | Condition + worst branch (not the sum of exclusive arms) |
+| Call | Catalog bind, walked body, `C(name)`, or unknown |
+
+Loop bounds come from `Length` / `Count`, a compared integral
+parameter, a recognized log update (`*= 2`, `/= 2`, `>>= 1`), a
+null-terminated walk, a visited-queue frontier, or a refill
+worklist (iterations are **not** `Count`). See
+[iteration statements](https://learn.microsoft.com/dotnet/csharp/language-reference/statements/iteration-statements).
+
+`CardinalityAnalyzer` walks
+[`ControlFlowGraph`](https://learn.microsoft.com/dotnet/api/microsoft.codeanalysis.flowanalysis.controlflowgraph)
+for reachability and SizeDelta (seed / current / max). Unreachable
+`Enqueue` does not grow space.
+[`AnalyzeDataFlow`](https://learn.microsoft.com/dotnet/api/microsoft.codeanalysis.dataflowanalysis)
+marks increment locals so they never become Big-O names.
+
+### 2.3 Space is peak retained memory
+
+This is the rule that most “allocation counters” get wrong.
+
+- `new int[n]` inside a loop, reference dropped each iteration →
+  **peak Θ(n)**, time Θ(n²) (zero-init × iterations).
+- `buffers.Add(new int[n])` for n iterations → **retained Θ(n²)**.
+- `new int[n, n]` → Θ(n²) cells
+  ([arrays](https://learn.microsoft.com/dotnet/csharp/language-reference/builtin-types/arrays)).
+- Fibonacci recursion: Θ(2^n) *time*, Θ(n) *stack*. The recursion
+  tree is not live stack.
+
+`CostComposer.Loop` multiplies time and **does not** multiply space.
+`NoteGrowth` multiplies only when an allocation is stored into a
+collection that outlives the iteration.
+
+Output that the method returns (adjacency list, all subsets) is
+counted as retained if it is live at the return.
+
+### 2.4 Recurrences
+
+`RecurrenceAnalyzer` does **not** solve general recurrences. It
+classifies a handful of source idioms:
+
+| Idiom | Time | Space |
+|---|---|---|
+| `T(n)=T(n-1)+O(1)` | O(n) | O(n) stack |
+| `T(n)=2T(n/2)+O(n)` | O(n log n) | O(n) |
+| Exclusive mid-split | O(log n) | O(log n) |
+| Sequential `n-1` and `n-2` | O(2^n) | O(n) |
+| 2D memo table write | size of table | table (+ stack) |
+| Two `index+1` calls + copy | O(n 2^n) | O(n 2^n) |
+| Loop + recurse + clone of n | O(n n!) | O(n n!) |
+| Loop + recurse + clone of k | O(k C(n, k)) | O(k C(n, k)) |
+| Recurse on neighbors + `bool[]` | O(k n) | O(n) |
+
+Local-function **declarations** are not walked as executable
+statements (`ILocalFunctionOperation`). Cost is paid at the call.
+Otherwise subset/permutation/DFS bodies would be counted twice.
+
+### 2.5 Patterns and honesty
+
+`PatternRecognizer` names hazards that do not require solving math:
+`dynamic`, reflection, interface dispatch, regex, streams, parallel,
+`IQueryable`, expression compile, await / `await foreach`, unproven
+loops, null-terminated walks, numeric countdown, locks, yield,
+deferred LINQ, cache hit/miss, data-dependent recursion.
+
+Effects:
+
+- **Unknown** — replace a lying O(1) / bare `C(name)` with
+  `O(unknown)` and a reason.
+- **Range** — keep a bound when we have one; explain best/worst
+  (cache, branching recursion).
+- **Annotate** — keep the bound; state the assumption.
+
+`O(n C(Process))` is kept: that *is* a stated bound. A bare
+`external.Run()` becomes Unknown.
+
+### 2.6 Confidence
+
+High is reserved for work that does not depend on an idiom matcher.
+Everything below High must list `ConfidenceReasons`:
+
+- recurrence classified as X; another control-flow shape may miss it
+- `Count > k` + `Dequeue` assumed
+- retained allocation assumed stored in a live collection
+- log bound assumed from doubling/halving
+- frontier assumed from `visited[]` + `queue.Count`
+- inner collection size is a fresh dimension, not proven |E|
+- catalog cost is amortized or expected
+- `C(name)` / unknown cost in the expression
+- named hazard reasons (dynamic, regex, …)
+
+The panel shows these under **Confidence**. They are assumptions, not
+a formal unsoundness proof.
+
+## 3. Roslyn pipeline
+
+### 3.1 Fast tier
+
+When a `.sln` is found, or a `.csproj` is found by walking up from
+the file, and that graph is ready, fast uses the same project
+`SemanticModel` as deep (buffer overlaid). It does **not** wait on
+an in-progress solution open. It does wait for the workspace gate
+once the graph is ready, so a deep run cannot silently force ad-hoc.
+
+Otherwise `CompilationFactory` builds a
+[`CSharpCompilation`](https://learn.microsoft.com/dotnet/api/microsoft.codeanalysis.csharp.csharpcompilation)
+from the buffer plus trusted platform assemblies and SDK implicit
+usings (`System.Collections.Generic`, `System.Linq`, …) so a
+LeetCode-style file still binds `PriorityQueue`.
+
+Top-level statements compile as an exe so `<Main>$` exists and is
+annotated as `Main`. Primary-constructor parameters are dimensions
+when a method reads them. Local functions are paid at the call and
+are not listed as top-level results.
+
+Unresolved types (`CS0246` / `CS0234`) and file-based `#:package`
+directives become file warnings. `#if` follows *this* compilation's
+symbols (project defines when the workspace is ready; none on
+ad-hoc).
+
+### 3.2 Deep tier
+
+[`MSBuildWorkspace`](https://learn.microsoft.com/dotnet/api/microsoft.codeanalysis.msbuild.msbuildworkspace)
+loads the solution
+([workspaces](https://learn.microsoft.com/dotnet/csharp/roslyn-sdk/work-with-workspace)).
+The same method walker runs on the project's `SemanticModel`. Deep
+**waits** for that load. If MSBuild cannot be located or a project
+fails to load, Ohno falls back to the ad-hoc compilation and records
+a warning. Deep must not invent a tighter bound that the fast tier
+would call Unknown (interface / BCL-virtual / opaque System APIs).
+
+### 3.3 Operation kinds we treat specially
+
+| Operation | Docs / language | Ohno behavior |
+|---|---|---|
+| `IArrayCreationOperation` | [Arrays](https://learn.microsoft.com/dotnet/csharp/language-reference/builtin-types/arrays) | Product of dimension sizes |
+| `IForEachLoopOperation` | [foreach](https://learn.microsoft.com/dotnet/csharp/language-reference/statements/iteration-statements#the-foreach-statement) | Bound = collection size; `await foreach` is opaque |
+| `IAwaitOperation` | [async](https://learn.microsoft.com/dotnet/csharp/asynchronous-programming/) | Unknown (not the local continuation) |
+| `ILockOperation` | [lock](https://learn.microsoft.com/dotnet/csharp/language-reference/statements/lock) | Annotate; local work O(1), wait is external |
+| yield (`OperationKind.YieldReturn`) | [yield](https://learn.microsoft.com/dotnet/csharp/language-reference/statements/yield) | Annotate; cost depends on consumption |
+| `IDynamicInvocationOperation` | [dynamic](https://learn.microsoft.com/dotnet/csharp/advanced-topics/interop/using-type-dynamic) | Unknown |
+| `ILocalFunctionOperation` | local functions | Declaration is free; call is paid |
+| `IForToLoopOperation` | VB `For…To` | Bound not inferred |
+| `ICollectionExpressionOperation` | collection expressions / spreads | Sum of element and spread sizes |
+| `IInterpolatedStringOperation` | interpolated strings | Not treated as O(1) when holes have size |
+
+C# indexers are `this[]` in metadata; writes use
+`IPropertyReferenceOperation.Property.IsIndexer`. Array elements are
+`IArrayElementReferenceOperation` — `graph[i].Add` must resolve the
+array symbol, not the indexer property.
+
+### 3.4 Catalog
+
+`OperationCatalog` keys `ContainingType#Name#Arity`. Time/space
+templates bind to the receiver (or LINQ source) size. Deferred LINQ
+is O(1) to build; materializing operators (`ToArray`, `string.Concat`)
+pay the source size. `Repeat` + `Concat` is element length × count.
+
+## 4. Test fixtures
+
+All live under `samples/` and are asserted in
+`src/analyzer/ComplexityAnalyzer.Tests`.
+
+### 4.1 LeetCode bench
+
+`samples/leetcode/OptimalSolutions.cs` — known-optimal solutions.
+`LeetCodeBenchTests` locks time and space.
+
+Coverage includes hash maps, two pointers, binary search, heap top-k,
+interval merge, 3-sum, house robber, linked-list reverse/cycle,
+prefix products, rotated search, trapping rain, group anagrams, coin
+change, LIS, Dijkstra (`NetworkDelayTime`), and Kahn (`CanFinish`).
+This is the regression net against “we made TwoSum O(n²)” or
+“TopK space collapsed k into n”.
+
+### 4.2 Torture / edge cases
+
+`samples/roslyn/RoslynComplexityEdgeCases.cs` — adversarial
+methods including unbounded BFS. Comments use:
+
+| Tag | Meaning |
+|---|---|
+| INCONCLUSIVE | Source alone cannot justify a bound |
+| CONTEXT_DEPENDENT | A bound needs an explicit assumption |
+| RANGE | Best/worst differ |
+| DERIVABLE_WITH_SUMMARIES | Possible if callees are walked or cataloged |
+| NON_TERMINATION_RISK | May not halt for all values of the static types |
+
+`EdgeCaseTortureTests` requires fast ≡ deep on the headline bound,
+and inconclusive cases to be `O(unknown)` with a pattern id
+(dynamic, reflection, interface, regex, stream, queryable, await,
+Collatz). Deep must not “fix” these into High O(1).
+
+Local bodies that *are* in compilation (expensive property, indexer,
+custom `MoveNext`, user-defined `+`) must be walked.
+
+### 4.3 Space patterns and combinations
+
+`RoslynSpaceComplexityPatterns.cs` — 24 peak-space idioms (constant,
+linear, m+n, mn, n², n³, peak vs retain, top-k, window, unique set,
+adjacency list/matrix, binary-search stack, linear/fib stack, 2D
+memo, n log n retain, subsets / perms / combinations, concat,
+BFS/DFS).
+
+`RoslynSpaceComplexityCombinations.cs` — matrix+buffer, peak-then-
+retain, window+set, buffer+linear recursion. Peak and independent
+dimensions must compose.
+
+`SpacePatternTests` also asserts High has no confidence reasons and
+that window/Fibonacci are Medium with a matching reason.
+
+### 4.4 Other tests
+
+| Suite | Role |
+|---|---|
+| `CardinalityGapTests` | Worklists, SizeDelta, heapify, SortedSet, Span, CFG |
+| `AcceptanceTests` | Linear/nested/triangular loops, dictionary writes, literals |
+| `RecursionAndLinqTests` | Linear recurrence, merge-sort shape, `IQueryable` unknown |
+| `AlgebraTests` | Simplifier / dominance |
+| `ExplanationFormatterTests` | Gloss phrases |
+| `ServerProtocolTests` | JSON-RPC initialize + analyze |
+| `CompilationContextTests` | Top-level Main, primary ctor, local fn, bind warnings |
+| `ProjectWorkspaceTests` | Fast uses project `#define`s when the workspace is ready |
+| Extension Vitest | Normalize, panel, decorations, RPC round-trip |
+
+## 5. Extension
+
+- `src/extension` — VS Code/Cursor extension (`ohno`).
+- `src/extension/src/ui/complexityModel.ts` — summary tree: gloss,
+  patterns, confidence reasons, dimensions, warnings.
+- Inline annotations are gated by `ohno.annotations.showInline`.
+- Hover markdown is implemented but not registered by default; the
+  panel is the primary UI.
+- Protocol field names are camelCase in TypeScript and PascalCase on
+  the .NET DTO; `normalize.ts` accepts both.
+
+## 6. How to extend
+
+### Add a BCL summary
+
+Register in `OperationCatalog` with type, name, arity, `SizeKind`,
+and `CostKind`. Use `Expected` / `Amortized` when the textbook bound
+is not worst-case (hash table, `List.Add`). Add an acceptance test.
+
+### Add a hazard pattern
+
+Add a detector in `PatternRecognizer.Match`. Return `Unknown`,
+`Range`, or `Annotate`. Put opaque ids in `PatternApplicator.IsOpaque`
+if the whole method should become `O(unknown)`. Add a torture case.
+
+### Add a recurrence idiom
+
+Extend `RecurrenceAnalyzer` only when the shape is recognizable
+without solving math. Cap confidence at Medium and `state.Note` why.
+Add a fixture method with a known closed form.
+
+### Add a language
+
+Implement the `IOperation`-equivalent walk (or a compiler API walk),
+emit `ComplexityResult`, and keep the Core algebra unchanged. Update
+`src/shared/protocol.ts` only if the wire shape changes.
+
+## 7. Limits (do not paper over these)
+
+Ohno **will miss** equivalent algorithms that use:
+
+- `goto` / `do` / `for (;;)` without a readable condition
+- recursion behind a delegate, interface, or helper
+- LINQ where a loop idiom was expected
+- custom `IEnumerable` without a walked `MoveNext`
+- BFS without a visit mark (reported `O(unknown)`, not a fake `O(n)`)
+- subset/permutation copies via `AddRange` / builders / `yield`
+
+When that happens, prefer **Unknown + reason** or a looser composed
+form (`O(n C(f))`) over a tight High bound.
+
+### 7.1 Known unsupported (will not be built)
+
+| Case | Status |
+|---|---|
+| `#:package` / `#:sdk` NuGet restore | Detect + warn only. No restore on the debounce path. |
+| Hosting source generators on ad-hoc fast | Loose files do not run generators. A loaded project compilation may. |
+| Every `#if` configuration | One compilation (project or ad-hoc). Other arms are invisible. |
+| `.razor` / `.cshtml` / `.csx` | Not hosted. `languageId` is not `csharp`. |
+| Tight bounds for `IQueryable`, `dynamic`, expression trees | Opaque / unknown. Do not invent High O(1). |
+
+## 8. Commands
+
+```bash
+dotnet test src/analyzer/ComplexityAnalyzer.Tests -c Release
+cd src/extension && npm test
+
+dotnet publish src/analyzer/ComplexityAnalyzer.Server \
+  -c Release -r linux-x64 --self-contained \
+  -o src/extension/server
+# Windows: -r win-x64 (produces ComplexityAnalyzer.Server.exe)
+```
+
+Do not commit unless asked. Do not skip hooks. Do not force-push
+`main`.

@@ -23,6 +23,7 @@ export default async function globalSetup(): Promise<void> {
     env: { ...process.env, OHNO_TEST: '1' },
     stdio: 'ignore',
     detached: true,
+    windowsHide: true,
   });
   child.unref();
   fs.writeFileSync(

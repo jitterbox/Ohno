@@ -7,8 +7,11 @@ on:
 
 jobs:
   analyzer:
-    name: .NET analyzer
-    runs-on: ubuntu-latest
+    name: .NET analyzer (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      matrix:
+        os: [ubuntu-latest, windows-latest]
     defaults:
       run:
         working-directory: src/analyzer
@@ -22,34 +25,53 @@ jobs:
       - run: dotnet test --no-build --configuration Release
 
   extension:
-    name: VS Code extension
-    runs-on: ubuntu-latest
+    name: VS Code extension (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      matrix:
+        os: [ubuntu-latest, windows-latest]
     defaults:
       run:
         working-directory: src/extension
     steps:
       - uses: actions/checkout@v4
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '8.0.x'
       - uses: actions/setup-node@v4
         with:
           node-version: '22'
           cache: npm
           cache-dependency-path: src/extension/package-lock.json
+      - run: dotnet build ComplexityAnalyzer.Server -c Debug
+        working-directory: src/analyzer
       - run: npm ci
       - run: npm run compile
       - run: npm test
 
   publish-server:
-    name: Publish analyzer server
+    name: Publish analyzer (${{ matrix.rid }})
     runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        include:
+          - rid: linux-x64
+            binary: ComplexityAnalyzer.Server
+          - rid: win-x64
+            binary: ComplexityAnalyzer.Server.exe
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-dotnet@v4
         with:
           dotnet-version: '8.0.x'
-      - run: dotnet publish ComplexityAnalyzer.Server -c Release -r linux-x64 --self-contained -o ../../src/extension/server
+      - run: >
+          dotnet publish ComplexityAnalyzer.Server
+          -c Release -r ${{ matrix.rid }} --self-contained
+          -o ../../src/extension/server-${{ matrix.rid }}
         working-directory: src/analyzer
-      - run: test -f src/extension/server/Microsoft.CodeAnalysis.Workspaces.MSBuild.dll
-      - run: test -f src/extension/server/Microsoft.Build.Locator.dll
+      - run: test -f src/extension/server-${{ matrix.rid }}/${{ matrix.binary }}
+      - run: test -f src/extension/server-${{ matrix.rid }}/Microsoft.CodeAnalysis.Workspaces.MSBuild.dll
+      - run: test -f src/extension/server-${{ matrix.rid }}/Microsoft.Build.Locator.dll
       # Playwright E2E against a real VS Code instance is opt-in:
       #   OHNO_E2E=1 npm run test:e2e
       # It launches VS Code via CDP (not _electron.launch).

@@ -30,6 +30,9 @@ const fn: FunctionComplexity = {
     resultingTime: 'O(n log k)',
     resultingSpace: 'O(k)',
   }],
+  explanation: '',
+  patterns: [],
+  confidenceReasons: [],
   tier: 'fast',
 };
 

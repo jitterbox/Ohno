@@ -1,6 +1,14 @@
 namespace ComplexityAnalyzer.Core;
 
-/// <summary>Language-neutral composition of sequential, branch, and loop costs.</summary>
+/// <summary>
+/// Language-neutral composition of sequential, branch, and loop costs.
+/// </summary>
+/// <remarks>
+/// Space is peak simultaneously retained memory, not allocation volume.
+/// A loop that allocates and drops a buffer each iteration stays Θ(size),
+/// not Θ(iterations × size). Time still multiplies by the bound.
+/// Mutually exclusive branches take the worst case; they are not added.
+/// </remarks>
 public static class CostComposer
 {
     public static ComposedCost Sequential(

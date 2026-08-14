@@ -1,16 +1,19 @@
 import * as fs from 'node:fs';
 import * as path from 'node:path';
 import { describe, expect, it } from 'vitest';
-import { AnalyzerRpcClient } from '../../src/analysis/rpcClient';
+import {
+  AnalyzerRpcClient,
+  resolveServerPath,
+} from '../../src/analysis/rpcClient';
 
-const serverPath = [
-  path.resolve(__dirname, '../../server/ComplexityAnalyzer.Server'),
-  path.resolve(__dirname, '../../../analyzer/ComplexityAnalyzer.Server/bin/Debug/net8.0/ComplexityAnalyzer.Server'),
-].find((candidate) => fs.existsSync(candidate));
+const serverPath = resolveServerPath(
+  path.resolve(__dirname, '../..'),
+  '',
+);
 
 describe('analyzer RPC round-trip', () => {
   it('initializes and analyzes TopK through vscode-jsonrpc', async () => {
-    if (!serverPath) {
+    if (!serverPath || !fs.existsSync(serverPath)) {
       throw new Error('Analyzer server binary not found. Build ComplexityAnalyzer.Server first.');
     }
 

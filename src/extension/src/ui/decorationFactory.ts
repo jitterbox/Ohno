@@ -68,19 +68,46 @@ export function headlineText(
   const parts = [fn.time];
   if (config.showSpace) parts.push(fn.space);
   if (config.showConfidence) parts.push(fn.confidence);
-  return ` ${parts.join(' · ')} `;
+  return parts.join(' · ');
 }
 
 export function headlineRender(
   fn: FunctionComplexity,
+  config: OhnoConfig,
+): vscode.ThemableDecorationAttachmentRenderOptions {
+  return annotationAfter(
+    headlineText(fn, config),
+    confidenceColor(fn.confidence),
+    confidenceBackground(fn.confidence),
+  );
+}
+
+export function nestedRender(
+  label: string,
+  cost: string,
+): vscode.ThemableDecorationAttachmentRenderOptions {
+  return annotationAfter(
+    `${label}: ${cost}`,
+    'ohno.nestedForeground',
+    'ohno.inlineBackgroundNested',
+  );
+}
+
+export function annotationAfter(
+  text: string,
+  colorId: string,
+  backgroundId: string,
 ): vscode.ThemableDecorationAttachmentRenderOptions {
   return {
-    contentText: '',
-    color: new vscode.ThemeColor(confidenceColor(fn.confidence)),
-    backgroundColor: new vscode.ThemeColor('ohno.inlineBackground'),
+    contentText: text,
+    color: new vscode.ThemeColor(colorId),
+    backgroundColor: new vscode.ThemeColor(backgroundId),
     textDecoration: toCssInjection({
       'white-space': 'pre',
       'font-variant-numeric': 'tabular-nums',
+      'padding-left': '1ch',
+      'padding-right': '0.6em',
+      'border-radius': '3px',
     }),
   };
 }
@@ -95,6 +122,19 @@ export function confidenceColor(confidence: Confidence): string {
       return 'ohno.confidenceLow';
     default:
       return 'ohno.confidenceUnknown';
+  }
+}
+
+export function confidenceBackground(confidence: Confidence): string {
+  switch (confidence) {
+    case 'high':
+      return 'ohno.inlineBackgroundHigh';
+    case 'medium':
+      return 'ohno.inlineBackgroundMedium';
+    case 'low':
+      return 'ohno.inlineBackgroundLow';
+    default:
+      return 'ohno.inlineBackgroundUnknown';
   }
 }
 

@@ -8,6 +8,17 @@ using Microsoft.CodeAnalysis.Diagnostics;
 
 namespace ComplexityAnalyzer.Analyzers;
 
+/// <summary>
+/// Optional compiler diagnostic that reports Ohno's Big-O estimate.
+/// </summary>
+/// <remarks>
+/// This is not
+/// <see href="https://learn.microsoft.com/dotnet/fundamentals/code-analysis/quality-rules/ca1502">CA1502</see>
+/// (cyclomatic complexity). CA1502 counts independent paths through a
+/// control-flow graph. These diagnostics report a symbolic time bound
+/// and confidence. See
+/// <see href="https://learn.microsoft.com/dotnet/api/microsoft.codeanalysis.diagnostics.diagnosticanalyzer">DiagnosticAnalyzer</see>.
+/// </remarks>
 [DiagnosticAnalyzer(LanguageNames.CSharp)]
 public sealed class ComplexityDiagnosticAnalyzer : DiagnosticAnalyzer
 {
@@ -51,8 +62,6 @@ public sealed class ComplexityDiagnosticAnalyzer : DiagnosticAnalyzer
             AnalyzeMethod, SyntaxKind.MethodDeclaration);
         context.RegisterSyntaxNodeAction(
             AnalyzeMethod, SyntaxKind.ConstructorDeclaration);
-        context.RegisterSyntaxNodeAction(
-            AnalyzeMethod, SyntaxKind.LocalFunctionStatement);
     }
 
     private static void AnalyzeMethod(SyntaxNodeAnalysisContext context)
@@ -81,7 +90,6 @@ public sealed class ComplexityDiagnosticAnalyzer : DiagnosticAnalyzer
         {
             MethodDeclarationSyntax m => m.Identifier.GetLocation(),
             ConstructorDeclarationSyntax c => c.Identifier.GetLocation(),
-            LocalFunctionStatementSyntax l => l.Identifier.GetLocation(),
             _ => node.GetLocation(),
         };
 }

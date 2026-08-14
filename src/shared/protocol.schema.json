@@ -31,7 +31,7 @@
     "ohno/analyzeDeep": {
       "params": { "$ref": "#/methods/ohno~1analyze/params" },
       "result": { "$ref": "#/definitions/AnalyzeResponse" },
-      "notes": "Long-running; server reports progress via $/progress."
+      "notes": "Same walker as fast; waits for the project graph."
     },
     "ohno/setSolutionContext": {
       "params": {
@@ -62,7 +62,8 @@
       "required": [
         "id", "name", "kind", "range", "signatureRange", "time", "space",
         "confidence", "dimensions", "evidence", "warnings",
-        "boundingSuggestions", "tier"
+        "boundingSuggestions", "explanation", "patterns",
+        "confidenceReasons", "tier"
       ],
       "properties": {
         "id": { "type": "string" },
@@ -85,6 +86,15 @@
           "type": "array",
           "items": { "$ref": "#/definitions/BoundingSuggestion" }
         },
+        "explanation": { "type": "string" },
+        "patterns": {
+          "type": "array",
+          "items": { "$ref": "#/definitions/RecognizedPattern" }
+        },
+        "confidenceReasons": {
+          "type": "array",
+          "items": { "type": "string" }
+        },
         "tier": { "enum": ["fast", "deep"] }
       }
     },
@@ -100,6 +110,15 @@
           "type": "array",
           "items": { "$ref": "#/definitions/EvidenceNode" }
         }
+      }
+    },
+    "RecognizedPattern": {
+      "type": "object",
+      "required": ["id", "label", "reason"],
+      "properties": {
+        "id": { "type": "string" },
+        "label": { "type": "string" },
+        "reason": { "type": "string" }
       }
     },
     "InputDimension": {

@@ -17,10 +17,10 @@ public class ServerProtocolTests
     }
 
     [Fact]
-    public void Analyze_ReturnsFunctionComplexity()
+    public async Task Analyze_ReturnsFunctionComplexity()
     {
         var service = new AnalyzerService();
-        var response = service.Analyze(new AnalyzeRequest(
+        var response = await service.Analyze(new AnalyzeRequest(
             "file:///tmp/Snippet.cs",
             """
             using System;
@@ -42,10 +42,10 @@ public class ServerProtocolTests
     }
 
     [Fact]
-    public void Analyze_TopK_HasDimensionsAndEvidence()
+    public async Task Analyze_TopK_HasDimensionsAndEvidence()
     {
         var service = new AnalyzerService();
-        var response = service.Analyze(new AnalyzeRequest(
+        var response = await service.Analyze(new AnalyzeRequest(
             "file:///tmp/TopK.cs",
             """
             using System;
@@ -78,10 +78,10 @@ public class ServerProtocolTests
     }
 
     [Fact]
-    public void AnalyzeDeep_WithoutSolution_UsesAdHocCompilation()
+    public async Task AnalyzeDeep_WithoutSolution_UsesAdHocCompilation()
     {
         var service = new AnalyzerService();
-        var response = service.AnalyzeDeep(new AnalyzeRequest(
+        var response = await service.AnalyzeDeep(new AnalyzeRequest(
             "file:///tmp/TopK.cs",
             """
             using System.Collections.Generic;

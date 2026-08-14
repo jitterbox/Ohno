@@ -31,7 +31,15 @@ public sealed record FunctionDto(
     EvidenceDto Evidence,
     WarningDto[] Warnings,
     SuggestionDto[] BoundingSuggestions,
+    string Explanation,
+    PatternDto[] Patterns,
+    string[] ConfidenceReasons,
     string Tier);
+
+public sealed record PatternDto(
+    string Id,
+    string Label,
+    string Reason);
 
 public sealed record EvidenceDto(
     string Kind,

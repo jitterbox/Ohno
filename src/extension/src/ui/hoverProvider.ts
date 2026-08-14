@@ -22,7 +22,24 @@ export function buildMarkdown(
   const md = new vscode.MarkdownString(undefined, true);
   md.isTrusted = true;
   md.appendMarkdown(`**${fn.name}** — ${fn.time} · ${fn.space}\n\n`);
+  if (fn.explanation) {
+    md.appendMarkdown(`*${fn.explanation}*\n\n`);
+  }
+  if (fn.patterns?.length) {
+    md.appendMarkdown(`**Patterns**\n\n`);
+    for (const p of fn.patterns) {
+      md.appendMarkdown(`- ${p.label}: ${p.reason}\n`);
+    }
+    md.appendMarkdown('\n');
+  }
   md.appendMarkdown(`Confidence: **${fn.confidence}** (${fn.tier} tier)\n\n`);
+  if (fn.confidenceReasons?.length) {
+    md.appendMarkdown(`**Why this is not high**\n\n`);
+    for (const reason of fn.confidenceReasons) {
+      md.appendMarkdown(`- *${reason}*\n`);
+    }
+    md.appendMarkdown('\n');
+  }
 
   if (fn.dimensions.length) {
     md.appendMarkdown(`**Dimensions**\n\n`);

@@ -1,6 +1,5 @@
 using ComplexityAnalyzer.Core;
 using Microsoft.CodeAnalysis;
-using Microsoft.CodeAnalysis.CSharp;
 using Microsoft.CodeAnalysis.CSharp.Syntax;
 
 namespace ComplexityAnalyzer.CSharp;
@@ -16,8 +15,17 @@ public sealed record FileAnalysis(
     IReadOnlyList<AnalysisWarning> Warnings);
 
 /// <summary>
-/// Analyzes every method, constructor, and local function in a C# file.
+/// Analyzes every method and constructor in a C# file, plus the
+/// synthesized entry point for top-level statements.
 /// </summary>
+/// <remarks>
+/// Fast tier: project <see cref="SemanticModel"/> when the workspace
+/// is ready, otherwise <see cref="CompilationFactory"/>.
+/// Deep tier: the same walk on a model from
+/// <c>MSBuildWorkspace</c> when a solution is loaded.
+/// Local functions are paid at the call site and are not listed as
+/// top-level results.
+/// </remarks>
 public sealed class CSharpFileAnalyzer
 {
     private readonly CSharpMethodAnalyzer _methods = new();
@@ -28,7 +36,7 @@ public sealed class CSharpFileAnalyzer
         CancellationToken token = default)
     {
         var compilation = CompilationFactory.Create(source, "OhnoAdHoc");
-        var tree = compilation.SyntaxTrees.Single();
+        var tree = CompilationFactory.SourceTree(compilation);
         var model = compilation.GetSemanticModel(tree);
         return Analyze(model, tree, tier, token);
     }
@@ -48,10 +56,12 @@ public sealed class CSharpFileAnalyzer
                 continue;
             var result = _methods.Analyze(method, model, tier);
             var range = RoslynSpans.Of(node) ?? signature;
-            functions.Add(new AnalyzedFunction(method, result, range, signature));
+            functions.Add(
+                new AnalyzedFunction(method, result, range, signature));
         }
 
-        return new FileAnalysis(functions, Array.Empty<AnalysisWarning>());
+        TryAddEntryPoint(model, tier, functions, token);
+        return new FileAnalysis(functions, BindWarnings.For(model));
     }
 
     private static bool TryGetMethod(
@@ -66,7 +76,6 @@ public sealed class CSharpFileAnalyzer
         {
             MethodDeclarationSyntax m => model.GetDeclaredSymbol(m),
             ConstructorDeclarationSyntax c => model.GetDeclaredSymbol(c),
-            LocalFunctionStatementSyntax l => model.GetDeclaredSymbol(l),
             _ => null,
         };
         if (symbol is not IMethodSymbol methodSymbol) return false;
@@ -75,10 +84,49 @@ public sealed class CSharpFileAnalyzer
         {
             MethodDeclarationSyntax m => RoslynSpans.Of(m.Identifier),
             ConstructorDeclarationSyntax c => RoslynSpans.Of(c.Identifier),
-            LocalFunctionStatementSyntax l => RoslynSpans.Of(l.Identifier),
             _ => RoslynSpans.Of(node),
         };
         signature = id ?? RoslynSpans.Of(node) ?? signature;
         return true;
+    }
+
+    private void TryAddEntryPoint(
+        SemanticModel model,
+        AnalysisTier tier,
+        List<AnalyzedFunction> functions,
+        CancellationToken token)
+    {
+        var main = model.Compilation.GetEntryPoint(token);
+        if (main is null) return;
+        if (functions.Any(f =>
+            SymbolEqualityComparer.Default.Equals(f.Symbol, main)))
+        {
+            return;
+        }
+
+        var root = model.SyntaxTree.GetRoot(token);
+        if (root is not CompilationUnitSyntax unit) return;
+        var globals = unit.Members
+            .OfType<GlobalStatementSyntax>()
+            .ToArray();
+        if (globals.Length == 0) return;
+        var signature = RoslynSpans.Of(globals[0])
+            ?? new LineSpan(0, 0, 0, 0);
+        var range = SpanOfGlobals(globals, signature);
+        var result = _methods.Analyze(main, model, tier);
+        functions.Insert(
+            0, new AnalyzedFunction(main, result, range, signature));
+    }
+
+    private static LineSpan SpanOfGlobals(
+        GlobalStatementSyntax[] globals, LineSpan fallback)
+    {
+        var first = RoslynSpans.Of(globals[0]) ?? fallback;
+        var last = RoslynSpans.Of(globals[^1]) ?? first;
+        return new LineSpan(
+            first.StartLine,
+            first.StartCharacter,
+            last.EndLine,
+            last.EndCharacter);
     }
 }

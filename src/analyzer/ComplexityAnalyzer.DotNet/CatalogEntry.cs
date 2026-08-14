@@ -13,6 +13,15 @@ public enum CostKind
 /// Known complexity of a BCL or LINQ member. Size templates use the
 /// receiver (or source) dimension: Constant, Receiver, or LogReceiver.
 /// </summary>
+public enum SizeDeltaKind
+{
+    None,
+    Increment,
+    Decrement,
+    Clear,
+    Replace,
+}
+
 public sealed record CatalogEntry(
     string Key,
     CostTemplate Time,
@@ -21,7 +30,8 @@ public sealed record CatalogEntry(
     bool Deferred = false,
     bool Materializes = false,
     bool Sorts = false,
-    bool IsQueryable = false);
+    bool IsQueryable = false,
+    SizeDeltaKind Delta = SizeDeltaKind.None);
 
 public enum SizeKind
 {

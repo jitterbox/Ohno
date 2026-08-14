@@ -95,6 +95,9 @@ function collectFunctions(
         evidence: cost.evidence,
         warnings: cost.warnings.map((message) => ({ message })),
         boundingSuggestions: [],
+        explanation: phraseFor(cost.time),
+        patterns: [],
+        confidenceReasons: [],
         tier: 'fast',
       });
     }
@@ -329,6 +332,21 @@ function maxSpace(a: string, b: string): string {
 function minConf(a: Confidence, b: Confidence): Confidence {
   const order: Confidence[] = ['unknown', 'low', 'medium', 'high'];
   return order[Math.min(order.indexOf(a), order.indexOf(b))];
+}
+
+function phraseFor(time: string): string {
+  switch (time) {
+    case '1':
+      return 'Constant time';
+    case 'n':
+    case 'm':
+      return 'Linear time';
+    case 'n^2':
+    case 'n²':
+      return 'Quadratic time';
+    default:
+      return time.includes('log') ? 'Linearithmic time' : '';
+  }
 }
 
 function simplify(expr: string): string {

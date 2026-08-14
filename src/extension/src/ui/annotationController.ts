@@ -9,16 +9,28 @@ import * as path from 'node:path';
 import * as vscode from 'vscode';
 import { languageEnabled, readConfig, type OhnoConfig } from '../config';
 import type { AnalyzerRegistry } from '../analysis/registry';
-import type { EvidenceNode, FunctionComplexity } from '../analysis/types';
+import type {
+  AnalyzeResponse,
+  EvidenceNode,
+  FunctionComplexity,
+} from '../analysis/types';
 import {
   createDecorationSet,
   disposeDecorationSet,
-  headlineText,
+  headlineRender,
   lineRange,
+  nestedRender,
   type DecorationSet,
 } from './decorationFactory';
-import { buildMarkdown } from './hoverProvider';
+// import { buildMarkdown } from './hoverProvider';
+import {
+  diffResponses,
+  failedDeepRun,
+  runningDeepRun,
+} from './deepDiff';
 import type { ResultStore } from './resultStore';
+
+type AnalysisOutcome = 'ok' | 'cancelled' | 'error' | 'skipped';
 
 export class AnnotationController implements vscode.Disposable {
   private decorations: DecorationSet;
@@ -36,6 +48,9 @@ export class AnnotationController implements vscode.Disposable {
     this.decorations = createDecorationSet(extensionPath);
     this.disposable = vscode.Disposable.from(
       vscode.workspace.onDidChangeTextDocument((e) => this.onEdit(e)),
+      vscode.workspace.onDidCloseTextDocument((doc) => {
+        this.store.clear(doc.uri);
+      }),
       vscode.window.onDidChangeActiveTextEditor(() => this.refresh()),
       vscode.workspace.onDidChangeConfiguration((e) => {
         if (e.affectsConfiguration('ohno')) this.refresh();
@@ -52,10 +67,12 @@ export class AnnotationController implements vscode.Disposable {
   }
 
   refresh(): void {
-    const config = readConfig();
     const editor = vscode.window.activeTextEditor;
-    if (!editor) return;
-    this.schedule(editor, config);
+    if (!editor) {
+      if (this.timer) clearTimeout(this.timer);
+      return;
+    }
+    this.schedule(readConfig());
   }
 
   async runDeep(uri?: vscode.Uri): Promise<void> {
@@ -63,8 +80,27 @@ export class AnnotationController implements vscode.Disposable {
     if (!editor) return;
     const target = uri ?? editor.document.uri;
     if (editor.document.uri.toString() !== target.toString()) return;
+    const before = this.store.get(editor.document.uri);
+    const current = this.store.functionAt(
+      editor.document.uri,
+      editor.selection.active,
+    );
+    if (current) {
+      this.store.setDeepRun(
+        editor.document.uri.toString(),
+        runningDeepRun(current.id),
+      );
+    }
     const config = { ...readConfig(), tier: 'deep' as const };
-    await this.analyze(editor, config);
+    const outcome = await vscode.window.withProgress({
+      location: vscode.ProgressLocation.Notification,
+      title: 'Ohno: Deep analysis',
+      cancellable: true,
+    }, async (progress, token) => {
+      progress.report({ message: 'Analyzing…' });
+      return this.analyze(editor, config, token);
+    });
+    this.finishDeep(editor, before, current?.id, outcome);
   }
 
   snapshot() {
@@ -74,54 +110,103 @@ export class AnnotationController implements vscode.Disposable {
   private onEdit(e: vscode.TextDocumentChangeEvent): void {
     const editor = vscode.window.activeTextEditor;
     if (!editor || editor.document !== e.document) return;
-    this.clear(editor);
     this.refresh();
   }
 
-  private schedule(editor: vscode.TextEditor, config: OhnoConfig): void {
+  private schedule(config: OhnoConfig): void {
     if (this.timer) clearTimeout(this.timer);
     this.timer = setTimeout(() => {
-      void this.analyze(editor, config);
+      const editor = vscode.window.activeTextEditor;
+      if (!editor) return;
+      // Automatic analysis is always fast; deep runs are on demand only.
+      void this.analyze(editor, { ...readConfig(), tier: 'fast' });
     }, config.debounceMs);
   }
 
   private async analyze(
     editor: vscode.TextEditor,
     config: OhnoConfig,
-  ): Promise<void> {
+    extra?: vscode.CancellationToken,
+  ): Promise<AnalysisOutcome> {
     const doc = editor.document;
     if (!languageEnabled(doc.languageId, config)) {
-      this.clear(editor);
-      return;
+      this.store.clear(doc.uri);
+      this.clearDocument(doc.uri);
+      return 'skipped';
     }
+    const text = doc.getText();
     if (config.maxFileSizeKb > 0
-      && doc.getText().length > config.maxFileSizeKb * 1024) {
+      && text.length > config.maxFileSizeKb * 1024) {
       this.output.appendLine(`skip ${doc.uri.fsPath}: file too large`);
-      return;
+      this.store.clear(doc.uri);
+      this.clearDocument(doc.uri);
+      return 'skipped';
     }
     const analyzer = this.registry.get(doc.languageId);
-    if (!analyzer) return;
+    if (!analyzer) return 'skipped';
 
     this.cancellation?.cancel();
     this.cancellation = new vscode.CancellationTokenSource();
+    if (extra?.isCancellationRequested) this.cancellation.cancel();
+    const extraSub = extra?.onCancellationRequested(() => {
+      this.cancellation?.cancel();
+    });
     const token = this.cancellation.token;
     const ticket = ++this.version;
 
     try {
       const response = await analyzer.analyze({
         uri: doc.uri.toString(),
-        text: doc.getText(),
+        text,
         version: doc.version,
         tier: config.tier,
       }, token);
-      if (token.isCancellationRequested || ticket !== this.version) return;
+      if (token.isCancellationRequested || ticket !== this.version) {
+        return 'cancelled';
+      }
+      if (editor.document.version !== response.version) return 'cancelled';
+      if (config.tier !== 'deep') this.store.clearDeepRuns(doc.uri);
       this.store.set(response);
       writeTestOutput(response);
       this.apply(editor, response.functions ?? [], config);
+      return 'ok';
     } catch (error) {
-      if (token.isCancellationRequested) return;
+      if (token.isCancellationRequested) return 'cancelled';
       this.output.appendLine(`analyze failed: ${String(error)}`);
+      return 'error';
+    } finally {
+      extraSub?.dispose();
     }
+  }
+
+  private finishDeep(
+    editor: vscode.TextEditor,
+    before: AnalyzeResponse | undefined,
+    functionId: string | undefined,
+    outcome: AnalysisOutcome,
+  ): void {
+    const uri = editor.document.uri.toString();
+    if (outcome === 'cancelled') {
+      if (functionId) this.store.clearDeepRun(uri, functionId);
+      return;
+    }
+    if (outcome !== 'ok') {
+      this.store.setDeepRun(
+        uri,
+        failedDeepRun(functionId ?? 'unknown', 'See the Ohno output channel.'),
+      );
+      vscode.window.setStatusBarMessage('Ohno: Deep analysis failed', 6000);
+      return;
+    }
+    const after = this.store.get(editor.document.uri);
+    if (after) this.store.setDeepRuns(uri, diffResponses(before, after));
+    const run = functionId
+      ? this.store.deepRunFor(editor.document.uri, functionId)
+      : undefined;
+    vscode.window.setStatusBarMessage(
+      `Ohno: Deep analysis complete — ${run?.summary ?? 'done'}`,
+      6000,
+    );
   }
 
   private apply(
@@ -129,8 +214,11 @@ export class AnnotationController implements vscode.Disposable {
     functions: FunctionComplexity[],
     config: OhnoConfig,
   ): void {
-    if (config.mode === 'off' || config.mode === 'codelens') {
-      this.clear(editor);
+    const uri = editor.document.uri;
+    if (!config.showInline
+      || config.mode === 'off'
+      || config.mode === 'codelens') {
+      this.clearDocument(uri);
       return;
     }
 
@@ -142,32 +230,39 @@ export class AnnotationController implements vscode.Disposable {
 
     for (const fn of functions) {
       const line = fn.signatureRange.startLine;
-      const hover = buildMarkdown(fn, editor.document.uri);
+      // const hover = buildMarkdown(fn, editor.document.uri);
       headlines.push({
         range: lineRange(editor.document, line),
-        renderOptions: {
-          after: {
-            contentText: headlineText(fn, config),
-            color: new vscode.ThemeColor(
-              `ohno.confidence${capitalize(fn.confidence)}`,
-            ),
-            textDecoration: 'none',
-          },
-        },
-        hoverMessage: hover,
+        renderOptions: { after: headlineRender(fn, config) },
       });
-      gutters[fn.confidence].push({
+      const gutter = gutters[fn.confidence] ?? gutters.unknown;
+      gutter.push({
         range: new vscode.Range(line, 0, line, 0),
       });
       collectNested(fn.evidence, 1, config.nestingDepth, nested, editor);
     }
 
-    editor.setDecorations(this.decorations.headline, headlines);
-    editor.setDecorations(this.decorations.nested, nested);
-    editor.setDecorations(this.decorations.gutters.high, gutters.high);
-    editor.setDecorations(this.decorations.gutters.medium, gutters.medium);
-    editor.setDecorations(this.decorations.gutters.low, gutters.low);
-    editor.setDecorations(this.decorations.gutters.unknown, gutters.unknown);
+    for (const target of this.visibleEditorsOf(uri)) {
+      target.setDecorations(this.decorations.headline, headlines);
+      target.setDecorations(this.decorations.nested, nested);
+      target.setDecorations(this.decorations.gutters.high, gutters.high);
+      target.setDecorations(this.decorations.gutters.medium, gutters.medium);
+      target.setDecorations(this.decorations.gutters.low, gutters.low);
+      target.setDecorations(this.decorations.gutters.unknown, gutters.unknown);
+    }
+  }
+
+  private clearDocument(uri: vscode.Uri): void {
+    for (const editor of this.visibleEditorsOf(uri)) {
+      this.clear(editor);
+    }
+  }
+
+  private visibleEditorsOf(uri: vscode.Uri): vscode.TextEditor[] {
+    const key = uri.toString();
+    return vscode.window.visibleTextEditors.filter(
+      (editor) => editor.document.uri.toString() === key,
+    );
   }
 
   private clear(editor: vscode.TextEditor): void {
@@ -198,10 +293,7 @@ function collectNested(
     sink.push({
       range: lineRange(editor.document, node.range.startLine),
       renderOptions: {
-        after: {
-          contentText: `  ${node.label}: ${node.cost}`,
-          color: new vscode.ThemeColor('ohno.nestedForeground'),
-        },
+        after: nestedRender(node.label, node.cost),
       },
     });
   }
@@ -214,9 +306,6 @@ function writeTestOutput(response: unknown): void {
   if (!process.env.OHNO_TEST) return;
   const dest = process.env.OHNO_TEST_OUTPUT
     ?? path.join(os.tmpdir(), 'ohno-last-result.json');
-  fs.writeFileSync(dest, JSON.stringify(response, null, 2));
-}
-
-function capitalize(value: string): string {
-  return value.charAt(0).toUpperCase() + value.slice(1);
+  fs.promises.writeFile(dest, JSON.stringify(response, null, 2))
+    .catch(() => undefined);
 }

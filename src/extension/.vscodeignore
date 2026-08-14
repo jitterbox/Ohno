@@ -10,3 +10,5 @@ test-results/**
 node_modules/**
 .vscode/**
 !dist/extension.js
+!server/**
+!server/**/*

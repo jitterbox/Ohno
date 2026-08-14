@@ -17,6 +17,8 @@ fs.rmSync(output, { force: true });
 fs.mkdirSync(userData, { recursive: true });
 
 const executable = process.env.VSCODE_BIN ?? 'code';
+const useShell = process.platform === 'win32'
+  && !path.isAbsolute(executable);
 const child = spawn(executable, [
   `--extensionDevelopmentPath=${extensionPath}`,
   `--user-data-dir=${userData}`,
@@ -31,6 +33,8 @@ const child = spawn(executable, [
     OHNO_TEST_OUTPUT: output,
   },
   stdio: 'ignore',
+  shell: useShell,
+  windowsHide: true,
 });
 
 const deadline = Date.now() + 60_000;
@@ -57,5 +61,17 @@ try {
     throw new Error('Timed out waiting for OHNO_TEST_OUTPUT from VS Code');
   }
 } finally {
-  child.kill();
+  stopProcess(child.pid);
+}
+
+function stopProcess(pid) {
+  if (!pid) return;
+  if (process.platform === 'win32') {
+    spawn('taskkill', ['/pid', String(pid), '/T', '/F'], {
+      stdio: 'ignore',
+      windowsHide: true,
+    });
+    return;
+  }
+  try { process.kill(pid, 'SIGTERM'); } catch { /* already gone */ }
 }

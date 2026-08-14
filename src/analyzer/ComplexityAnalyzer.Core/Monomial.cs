@@ -107,6 +107,11 @@ internal sealed record Monomial
 
                 return true;
 
+            case BinomialExpression binomial:
+                opaques.Add(
+                    $"binomial:{ComplexityFormatter.Format(binomial)}");
+                return true;
+
             case FunctionCostExpression call:
                 opaques.Add($"call:{call.FunctionName}");
                 return true;
@@ -142,6 +147,7 @@ internal sealed record Monomial
         if (!Opaques.IsSupersetOf(other.Opaques)) return false;
         if (EquivalentTo(other)) return true;
         if (LogProductDominatesVariable(other)) return true;
+        if (LogProductDominatesLogProduct(other)) return true;
 
         // Any real work (a dimension or an opaque call) dominates a constant.
         if (other.IsConstant) return true;
@@ -174,6 +180,26 @@ internal sealed record Monomial
             return false;
         return Variables.Any(kv =>
             kv.Key != name && kv.Value.Power >= 1);
+    }
+
+    /// <summary>
+    /// n log k dominates k log k when n covers the seeded lists
+    /// (k-way merge: every list head is one of the n nodes).
+    /// Does not absorb n log n into m log n — those dimensions
+    /// are independent.
+    /// </summary>
+    private bool LogProductDominatesLogProduct(Monomial other)
+    {
+        if (other.Opaques.Count > 0 || other.Variables.Count != 1)
+            return false;
+        var (name, measure) = other.Variables.Single();
+        if (name != "k") return false;
+        if (!measure.Equals(new VariableMeasure(0, 0, 1, 1)))
+            return false;
+        if (!Variables.TryGetValue("k", out var mine) || mine.LogPower < 1)
+            return false;
+        return Variables.TryGetValue("n", out var cover)
+            && cover.Power >= 1;
     }
 
     /// <summary>Structural equality of the underlying measure maps.</summary>

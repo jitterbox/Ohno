@@ -4,6 +4,15 @@ namespace ComplexityAnalyzer.DotNet;
 /// Extensible catalog of known .NET / LINQ operation costs, keyed by a
 /// stable symbol identity (containing type + member + arity).
 /// </summary>
+/// <remarks>
+/// Entries are summaries, not measurements. <c>Expected</c> and
+/// <c>Amortized</c> kinds cap confidence at Medium.
+/// <c>Enumerable.Repeat</c>
+/// (<see href="https://learn.microsoft.com/dotnet/api/system.linq.enumerable.repeat">Repeat</see>)
+/// is deferred O(1) to construct; <c>string.Concat</c> of that sequence
+/// materializes payload size (element length × count).
+/// Missing members fall through to primitive/unknown handling.
+/// </remarks>
 public sealed class OperationCatalog
 {
     private readonly Dictionary<string, CatalogEntry> _entries = new(
@@ -13,6 +22,7 @@ public sealed class OperationCatalog
     {
         var catalog = new OperationCatalog();
         catalog.RegisterArrays();
+        catalog.RegisterString();
         catalog.RegisterList();
         catalog.RegisterDictionary();
         catalog.RegisterHashSet();
@@ -20,6 +30,9 @@ public sealed class OperationCatalog
         catalog.RegisterStack();
         catalog.RegisterLinkedList();
         catalog.RegisterPriorityQueue();
+        catalog.RegisterSorted();
+        catalog.RegisterStringBuilder();
+        catalog.RegisterImmutable();
         catalog.RegisterLinq();
         return catalog;
     }
@@ -43,7 +56,8 @@ public sealed class OperationCatalog
         bool deferred = false,
         bool materializes = false,
         bool sorts = false,
-        bool queryable = false)
+        bool queryable = false,
+        SizeDeltaKind delta = SizeDeltaKind.None)
     {
         Add(new CatalogEntry(
             Key(type, member, arity),
@@ -53,15 +67,19 @@ public sealed class OperationCatalog
             deferred,
             materializes,
             sorts,
-            queryable));
+            queryable,
+            delta));
     }
 
     private void RegisterArrays()
     {
         const string arr = "System.Array";
         Method(arr, "get_Length", 0, SizeKind.Constant);
+        Method(arr, "Empty", 0, SizeKind.Constant);
         Method(arr, "Sort", 1, SizeKind.Receiver, timePower: 0, sorts: true);
-        // Sort is n log n — encoded as Sorts flag + Receiver size.
+        Method(arr, "Sort", 2, SizeKind.Receiver, timePower: 0, sorts: true);
+        Method(arr, "Sort", 3, SizeKind.Receiver, timePower: 0, sorts: true);
+        Method(arr, "Sort", 4, SizeKind.Receiver, timePower: 0, sorts: true);
         Method(arr, "BinarySearch", 2, SizeKind.LogReceiver);
         Method(arr, "IndexOf", 2, SizeKind.Receiver);
         Method(arr, "LastIndexOf", 2, SizeKind.Receiver);
@@ -71,6 +89,22 @@ public sealed class OperationCatalog
         Method(arr, "CopyTo", 2, SizeKind.Receiver);
         Method(arr, "Clear", 3, SizeKind.Receiver);
         Method(arr, "Resize", 2, SizeKind.Receiver, space: SizeKind.Receiver);
+        Method(arr, "Fill", 2, SizeKind.Receiver);
+        Method(arr, "Fill", 4, SizeKind.Receiver);
+        Method(arr, "Clone", 0, SizeKind.Receiver,
+            space: SizeKind.Receiver, materializes: true);
+    }
+
+    private void RegisterString()
+    {
+        const string str = "System.String";
+        Method(str, "get_Length", 0, SizeKind.Constant);
+        Method(str, "ToCharArray", 0, SizeKind.Receiver,
+            space: SizeKind.Receiver, materializes: true);
+        Method(str, "ToCharArray", 2, SizeKind.Receiver,
+            space: SizeKind.Receiver, materializes: true);
+        Method(str, "Concat", 1, SizeKind.Receiver,
+            space: SizeKind.Receiver, materializes: true);
     }
 
     private void RegisterList()
@@ -79,20 +113,33 @@ public sealed class OperationCatalog
         Method(list, "get_Count", 0, SizeKind.Constant);
         Method(list, "get_Item", 1, SizeKind.Constant);
         Method(list, "set_Item", 2, SizeKind.Constant);
-        Method(list, "Add", 1, SizeKind.Constant, CostKind.Amortized);
-        Method(list, "AddRange", 1, SizeKind.Receiver);
-        Method(list, "Insert", 2, SizeKind.Receiver);
-        Method(list, "Remove", 1, SizeKind.Receiver);
-        Method(list, "RemoveAt", 1, SizeKind.Receiver);
+        Method(list, "Add", 1, SizeKind.Constant, CostKind.Amortized,
+            delta: SizeDeltaKind.Increment);
+        Method(list, "AddRange", 1, SizeKind.Receiver,
+            delta: SizeDeltaKind.Replace);
+        Method(list, "Insert", 2, SizeKind.Receiver,
+            delta: SizeDeltaKind.Increment);
+        Method(list, "Remove", 1, SizeKind.Receiver,
+            delta: SizeDeltaKind.Decrement);
+        Method(list, "RemoveAt", 1, SizeKind.Receiver,
+            delta: SizeDeltaKind.Decrement);
         Method(list, "Contains", 1, SizeKind.Receiver);
         Method(list, "IndexOf", 1, SizeKind.Receiver);
         Method(list, "Sort", 0, SizeKind.Receiver, sorts: true);
         Method(list, "Sort", 1, SizeKind.Receiver, sorts: true);
         Method(list, "BinarySearch", 1, SizeKind.LogReceiver);
         Method(list, "ToArray", 0, SizeKind.Receiver, space: SizeKind.Receiver);
-        Method(list, "Clear", 0, SizeKind.Receiver);
+        Method(list, "Clear", 0, SizeKind.Receiver,
+            delta: SizeDeltaKind.Clear);
         Method(list, "Find", 1, SizeKind.Receiver);
         Method(list, "Exists", 1, SizeKind.Receiver);
+        Method(
+            "System.Collections.Generic.ICollection`1",
+            "Add",
+            1,
+            SizeKind.Constant,
+            CostKind.Amortized,
+            delta: SizeDeltaKind.Increment);
     }
 
     private void RegisterDictionary()
@@ -104,39 +151,67 @@ public sealed class OperationCatalog
         Method(dict, "TryGetValue", 2, SizeKind.Constant, CostKind.Expected);
         Method(dict, "ContainsKey", 1, SizeKind.Constant, CostKind.Expected);
         Method(dict, "ContainsValue", 1, SizeKind.Receiver);
-        Method(dict, "Add", 2, SizeKind.Constant, CostKind.Expected);
-        Method(dict, "Remove", 1, SizeKind.Constant, CostKind.Expected);
-        Method(dict, "Clear", 0, SizeKind.Receiver);
+        Method(dict, "Add", 2, SizeKind.Constant, CostKind.Expected,
+            delta: SizeDeltaKind.Increment);
+        Method(dict, "Remove", 1, SizeKind.Constant, CostKind.Expected,
+            delta: SizeDeltaKind.Decrement);
+        Method(dict, "Clear", 0, SizeKind.Receiver,
+            delta: SizeDeltaKind.Clear);
+        Method(
+            "System.Collections.Generic.CollectionExtensions",
+            "GetValueOrDefault",
+            2,
+            SizeKind.Constant,
+            CostKind.Expected);
+        Method(
+            "System.Collections.Generic.CollectionExtensions",
+            "GetValueOrDefault",
+            3,
+            SizeKind.Constant,
+            CostKind.Expected);
     }
 
     private void RegisterHashSet()
     {
         const string set = "System.Collections.Generic.HashSet`1";
         Method(set, "get_Count", 0, SizeKind.Constant);
-        Method(set, "Add", 1, SizeKind.Constant, CostKind.Expected);
+        Method(set, "Add", 1, SizeKind.Constant, CostKind.Expected,
+            delta: SizeDeltaKind.Increment);
         Method(set, "Contains", 1, SizeKind.Constant, CostKind.Expected);
-        Method(set, "Remove", 1, SizeKind.Constant, CostKind.Expected);
-        Method(set, "Clear", 0, SizeKind.Receiver);
+        Method(set, "Remove", 1, SizeKind.Constant, CostKind.Expected,
+            delta: SizeDeltaKind.Decrement);
+        Method(set, "Clear", 0, SizeKind.Receiver,
+            delta: SizeDeltaKind.Clear);
     }
 
     private void RegisterQueue()
     {
         const string q = "System.Collections.Generic.Queue`1";
         Method(q, "get_Count", 0, SizeKind.Constant);
-        Method(q, "Enqueue", 1, SizeKind.Constant, CostKind.Amortized);
-        Method(q, "Dequeue", 0, SizeKind.Constant);
+        Method(q, "Enqueue", 1, SizeKind.Constant, CostKind.Amortized,
+            delta: SizeDeltaKind.Increment);
+        Method(q, "Dequeue", 0, SizeKind.Constant,
+            delta: SizeDeltaKind.Decrement);
+        Method(q, "TryDequeue", 1, SizeKind.Constant,
+            delta: SizeDeltaKind.Decrement);
         Method(q, "Peek", 0, SizeKind.Constant);
-        Method(q, "Clear", 0, SizeKind.Receiver);
+        Method(q, "Clear", 0, SizeKind.Receiver,
+            delta: SizeDeltaKind.Clear);
     }
 
     private void RegisterStack()
     {
         const string s = "System.Collections.Generic.Stack`1";
         Method(s, "get_Count", 0, SizeKind.Constant);
-        Method(s, "Push", 1, SizeKind.Constant, CostKind.Amortized);
-        Method(s, "Pop", 0, SizeKind.Constant);
+        Method(s, "Push", 1, SizeKind.Constant, CostKind.Amortized,
+            delta: SizeDeltaKind.Increment);
+        Method(s, "Pop", 0, SizeKind.Constant,
+            delta: SizeDeltaKind.Decrement);
+        Method(s, "TryPop", 1, SizeKind.Constant,
+            delta: SizeDeltaKind.Decrement);
         Method(s, "Peek", 0, SizeKind.Constant);
-        Method(s, "Clear", 0, SizeKind.Receiver);
+        Method(s, "Clear", 0, SizeKind.Receiver,
+            delta: SizeDeltaKind.Clear);
     }
 
     private void RegisterLinkedList()
@@ -153,11 +228,65 @@ public sealed class OperationCatalog
     {
         const string pq = "System.Collections.Generic.PriorityQueue`2";
         Method(pq, "get_Count", 0, SizeKind.Constant);
-        Method(pq, "Enqueue", 2, SizeKind.LogReceiver);
-        Method(pq, "Dequeue", 0, SizeKind.LogReceiver);
+        Method(pq, ".ctor", 1, SizeKind.Receiver, space: SizeKind.Receiver,
+            delta: SizeDeltaKind.Replace);
+        Method(pq, "Enqueue", 2, SizeKind.LogReceiver,
+            delta: SizeDeltaKind.Increment);
+        Method(pq, "EnqueueRange", 1, SizeKind.Receiver,
+            delta: SizeDeltaKind.Replace);
+        Method(pq, "Dequeue", 0, SizeKind.LogReceiver,
+            delta: SizeDeltaKind.Decrement);
+        Method(pq, "TryDequeue", 2, SizeKind.LogReceiver,
+            delta: SizeDeltaKind.Decrement);
         Method(pq, "Peek", 0, SizeKind.Constant);
         Method(pq, "EnqueueDequeue", 2, SizeKind.LogReceiver);
-        Method(pq, "Clear", 0, SizeKind.Receiver);
+        Method(pq, "Clear", 0, SizeKind.Receiver,
+            delta: SizeDeltaKind.Clear);
+    }
+
+    private void RegisterSorted()
+    {
+        const string set = "System.Collections.Generic.SortedSet`1";
+        Method(set, "get_Count", 0, SizeKind.Constant);
+        Method(set, "Add", 1, SizeKind.LogReceiver,
+            delta: SizeDeltaKind.Increment);
+        Method(set, "Remove", 1, SizeKind.LogReceiver,
+            delta: SizeDeltaKind.Decrement);
+        Method(set, "Contains", 1, SizeKind.LogReceiver);
+        Method(set, "Clear", 0, SizeKind.Receiver,
+            delta: SizeDeltaKind.Clear);
+
+        const string dict = "System.Collections.Generic.SortedDictionary`2";
+        Method(dict, "get_Count", 0, SizeKind.Constant);
+        Method(dict, "Add", 2, SizeKind.LogReceiver,
+            delta: SizeDeltaKind.Increment);
+        Method(dict, "Remove", 1, SizeKind.LogReceiver,
+            delta: SizeDeltaKind.Decrement);
+        Method(dict, "ContainsKey", 1, SizeKind.LogReceiver);
+        Method(dict, "Clear", 0, SizeKind.Receiver,
+            delta: SizeDeltaKind.Clear);
+    }
+
+    private void RegisterStringBuilder()
+    {
+        const string sb = "System.Text.StringBuilder";
+        Method(sb, "get_Length", 0, SizeKind.Constant);
+        Method(sb, "Append", 1, SizeKind.Constant, CostKind.Amortized,
+            space: SizeKind.Receiver, delta: SizeDeltaKind.Increment);
+        Method(sb, "Append", 2, SizeKind.Constant, CostKind.Amortized,
+            space: SizeKind.Receiver, delta: SizeDeltaKind.Increment);
+        Method(sb, "ToString", 0, SizeKind.Receiver,
+            space: SizeKind.Receiver, materializes: true);
+    }
+
+    private void RegisterImmutable()
+    {
+        const string list = "System.Collections.Immutable.ImmutableList`1";
+        Method(list, "Add", 1, SizeKind.LogReceiver,
+            space: SizeKind.Receiver, delta: SizeDeltaKind.Increment);
+        Method(list, "Remove", 1, SizeKind.LogReceiver,
+            space: SizeKind.Receiver, delta: SizeDeltaKind.Decrement);
+        Method(list, "get_Count", 0, SizeKind.Constant);
     }
 
     private void RegisterLinq()
@@ -226,5 +355,6 @@ public sealed class OperationCatalog
         Linq("Aggregate", 2, SizeKind.Receiver, deferred: false);
         Linq("Aggregate", 3, SizeKind.Receiver, deferred: false);
         Linq("AsEnumerable", 1, SizeKind.Constant, deferred: true);
+        Linq("Repeat", 2, SizeKind.Constant, deferred: true);
     }
 }
