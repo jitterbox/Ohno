@@ -33,6 +33,8 @@ public sealed class OperationCatalog
         catalog.RegisterSorted();
         catalog.RegisterStringBuilder();
         catalog.RegisterImmutable();
+        catalog.RegisterSpans();
+        catalog.RegisterFrozen();
         catalog.RegisterLinq();
         return catalog;
     }
@@ -93,17 +95,130 @@ public sealed class OperationCatalog
         Method(arr, "Fill", 4, SizeKind.Receiver);
         Method(arr, "Clone", 0, SizeKind.Receiver,
             space: SizeKind.Receiver, materializes: true);
+        Method(arr, "Copy", 3, SizeKind.Receiver);
+        Method(arr, "Copy", 5, SizeKind.Receiver);
+        Method(arr, "ConstrainedCopy", 5, SizeKind.Receiver);
+        Method(arr, "Reverse", 1, SizeKind.Receiver);
+        Method(arr, "Reverse", 3, SizeKind.Receiver);
+        Method(arr, "ConvertAll", 2, SizeKind.Receiver,
+            space: SizeKind.Receiver, materializes: true);
+        Method(arr, "FindIndex", 2, SizeKind.Receiver);
+        Method(arr, "FindIndex", 3, SizeKind.Receiver);
+        Method(arr, "FindIndex", 4, SizeKind.Receiver);
+        Method(arr, "FindLast", 2, SizeKind.Receiver);
+        Method(arr, "FindLastIndex", 2, SizeKind.Receiver);
+        Method(arr, "TrueForAll", 2, SizeKind.Receiver);
+        Method(arr, "ForEach", 2, SizeKind.Receiver);
+        Method(arr, "BinarySearch", 3, SizeKind.LogReceiver);
+        Method(arr, "BinarySearch", 4, SizeKind.LogReceiver);
+        Method(arr, "AsReadOnly", 1, SizeKind.Constant);
+        Method(arr, "GetLength", 1, SizeKind.Constant);
+        Method("System.Buffer", "BlockCopy", 5, SizeKind.Receiver);
     }
 
+    /// <summary>
+    /// String members are linear in the receiver (or the argument) and
+    /// allocate a new string when they materialize one. Without these,
+    /// the most common calls in C# fell through to <c>C(name)</c>.
+    /// </summary>
     private void RegisterString()
     {
         const string str = "System.String";
         Method(str, "get_Length", 0, SizeKind.Constant);
+        Method(str, "get_Chars", 1, SizeKind.Constant);
+        Method(str, "IsNullOrEmpty", 1, SizeKind.Constant);
+
+        for (var arity = 1; arity <= 4; arity++)
+        {
+            Method(str, "Concat", arity, SizeKind.Receiver,
+                space: SizeKind.Receiver, materializes: true);
+            Method(str, "Join", arity, SizeKind.Receiver,
+                space: SizeKind.Receiver, materializes: true);
+            Method(str, "Format", arity, SizeKind.Receiver,
+                space: SizeKind.Receiver, materializes: true);
+        }
+
         Method(str, "ToCharArray", 0, SizeKind.Receiver,
             space: SizeKind.Receiver, materializes: true);
         Method(str, "ToCharArray", 2, SizeKind.Receiver,
             space: SizeKind.Receiver, materializes: true);
-        Method(str, "Concat", 1, SizeKind.Receiver,
+
+        // Copies a slice; worst case is the whole receiver.
+        Method(str, "Substring", 1, SizeKind.Receiver,
+            space: SizeKind.Receiver, materializes: true);
+        Method(str, "Substring", 2, SizeKind.Receiver,
+            space: SizeKind.Receiver, materializes: true);
+        Method(str, "Remove", 1, SizeKind.Receiver,
+            space: SizeKind.Receiver, materializes: true);
+        Method(str, "Remove", 2, SizeKind.Receiver,
+            space: SizeKind.Receiver, materializes: true);
+        Method(str, "Insert", 2, SizeKind.Receiver,
+            space: SizeKind.Receiver, materializes: true);
+        Method(str, "Replace", 2, SizeKind.Receiver,
+            space: SizeKind.Receiver, materializes: true);
+        Method(str, "PadLeft", 1, SizeKind.Receiver,
+            space: SizeKind.Receiver, materializes: true);
+        Method(str, "PadLeft", 2, SizeKind.Receiver,
+            space: SizeKind.Receiver, materializes: true);
+        Method(str, "PadRight", 1, SizeKind.Receiver,
+            space: SizeKind.Receiver, materializes: true);
+        Method(str, "PadRight", 2, SizeKind.Receiver,
+            space: SizeKind.Receiver, materializes: true);
+
+        foreach (var name in new[]
+        {
+            "ToUpper", "ToLower", "ToUpperInvariant", "ToLowerInvariant",
+            "Trim", "TrimStart", "TrimEnd", "Normalize",
+        })
+        {
+            Method(str, name, 0, SizeKind.Receiver,
+                space: SizeKind.Receiver, materializes: true);
+            Method(str, name, 1, SizeKind.Receiver,
+                space: SizeKind.Receiver, materializes: true);
+        }
+
+        // Split allocates one string per piece: linear in the source.
+        for (var arity = 1; arity <= 3; arity++)
+        {
+            Method(str, "Split", arity, SizeKind.Receiver,
+                space: SizeKind.Receiver, materializes: true);
+        }
+
+        // Scans, no allocation. Naive search is O(n*m) worst case, but
+        // the BCL uses a linear-time strategy for the common paths.
+        foreach (var name in new[]
+        {
+            "IndexOf", "LastIndexOf", "IndexOfAny", "LastIndexOfAny",
+            "Contains", "StartsWith", "EndsWith",
+        })
+        {
+            for (var arity = 1; arity <= 3; arity++)
+                Method(str, name, arity, SizeKind.Receiver);
+        }
+
+        for (var arity = 2; arity <= 6; arity++)
+        {
+            Method(str, "Compare", arity, SizeKind.Receiver);
+            Method(str, "CompareOrdinal", arity, SizeKind.Receiver);
+        }
+
+        Method(str, "CompareTo", 1, SizeKind.Receiver);
+        Method(str, "Equals", 1, SizeKind.Receiver);
+        Method(str, "Equals", 2, SizeKind.Receiver);
+        Method(str, "Equals", 3, SizeKind.Receiver);
+        Method(str, "GetHashCode", 0, SizeKind.Receiver);
+        Method(str, "CopyTo", 1, SizeKind.Receiver);
+        Method(str, "CopyTo", 4, SizeKind.Receiver);
+        Method(str, "AsSpan", 0, SizeKind.Constant);
+        Method(str, "AsSpan", 1, SizeKind.Constant);
+        Method(str, "AsSpan", 2, SizeKind.Constant);
+
+        // string.ctor(char[]) / (char, count) copy their source.
+        Method(str, ".ctor", 1, SizeKind.Receiver,
+            space: SizeKind.Receiver, materializes: true);
+        Method(str, ".ctor", 2, SizeKind.Receiver,
+            space: SizeKind.Receiver, materializes: true);
+        Method(str, ".ctor", 3, SizeKind.Receiver,
             space: SizeKind.Receiver, materializes: true);
     }
 
@@ -133,6 +248,28 @@ public sealed class OperationCatalog
             delta: SizeDeltaKind.Clear);
         Method(list, "Find", 1, SizeKind.Receiver);
         Method(list, "Exists", 1, SizeKind.Receiver);
+        Method(list, "FindIndex", 1, SizeKind.Receiver);
+        Method(list, "FindLast", 1, SizeKind.Receiver);
+        Method(list, "TrueForAll", 1, SizeKind.Receiver);
+        Method(list, "ForEach", 1, SizeKind.Receiver);
+        Method(list, "RemoveAll", 1, SizeKind.Receiver,
+            delta: SizeDeltaKind.Decrement);
+        Method(list, "RemoveRange", 2, SizeKind.Receiver,
+            delta: SizeDeltaKind.Decrement);
+        Method(list, "InsertRange", 2, SizeKind.Receiver,
+            delta: SizeDeltaKind.Increment);
+        Method(list, "Reverse", 0, SizeKind.Receiver);
+        Method(list, "Reverse", 2, SizeKind.Receiver);
+        Method(list, "CopyTo", 1, SizeKind.Receiver);
+        Method(list, "CopyTo", 3, SizeKind.Receiver);
+        Method(list, "GetRange", 2, SizeKind.Receiver,
+            space: SizeKind.Receiver, materializes: true);
+        Method(list, "TrimExcess", 0, SizeKind.Receiver);
+        Method(list, "EnsureCapacity", 1, SizeKind.Receiver);
+        Method(list, "get_Capacity", 0, SizeKind.Constant);
+        // new List<T>(capacity) / (source): both allocate the argument.
+        Method(list, ".ctor", 1, SizeKind.Receiver,
+            space: SizeKind.Receiver, delta: SizeDeltaKind.Replace);
         Method(
             "System.Collections.Generic.ICollection`1",
             "Add",
@@ -157,6 +294,14 @@ public sealed class OperationCatalog
             delta: SizeDeltaKind.Decrement);
         Method(dict, "Clear", 0, SizeKind.Receiver,
             delta: SizeDeltaKind.Clear);
+        Method(dict, "TryAdd", 2, SizeKind.Constant, CostKind.Expected,
+            delta: SizeDeltaKind.Increment);
+        Method(dict, "get_Keys", 0, SizeKind.Constant);
+        Method(dict, "get_Values", 0, SizeKind.Constant);
+        Method(dict, "EnsureCapacity", 1, SizeKind.Receiver);
+        Method(dict, "TrimExcess", 0, SizeKind.Receiver);
+        Method(dict, ".ctor", 1, SizeKind.Receiver,
+            space: SizeKind.Receiver, delta: SizeDeltaKind.Replace);
         Method(
             "System.Collections.Generic.CollectionExtensions",
             "GetValueOrDefault",
@@ -182,6 +327,24 @@ public sealed class OperationCatalog
             delta: SizeDeltaKind.Decrement);
         Method(set, "Clear", 0, SizeKind.Receiver,
             delta: SizeDeltaKind.Clear);
+        Method(set, "TryGetValue", 2, SizeKind.Constant, CostKind.Expected);
+        Method(set, "EnsureCapacity", 1, SizeKind.Receiver);
+        Method(set, ".ctor", 1, SizeKind.Receiver,
+            space: SizeKind.Receiver, delta: SizeDeltaKind.Replace);
+        // Bulk set operations walk both sides.
+        foreach (var name in new[]
+        {
+            "UnionWith", "IntersectWith", "ExceptWith",
+            "SymmetricExceptWith", "IsSubsetOf", "IsSupersetOf",
+            "IsProperSubsetOf", "IsProperSupersetOf", "Overlaps",
+            "SetEquals",
+        })
+        {
+            Method(set, name, 1, SizeKind.Receiver,
+                delta: name.EndsWith("With", StringComparison.Ordinal)
+                    ? SizeDeltaKind.Increment
+                    : SizeDeltaKind.None);
+        }
     }
 
     private void RegisterQueue()
@@ -195,8 +358,14 @@ public sealed class OperationCatalog
         Method(q, "TryDequeue", 1, SizeKind.Constant,
             delta: SizeDeltaKind.Decrement);
         Method(q, "Peek", 0, SizeKind.Constant);
+        Method(q, "TryPeek", 1, SizeKind.Constant);
+        Method(q, "Contains", 1, SizeKind.Receiver);
+        Method(q, "ToArray", 0, SizeKind.Receiver,
+            space: SizeKind.Receiver, materializes: true);
         Method(q, "Clear", 0, SizeKind.Receiver,
             delta: SizeDeltaKind.Clear);
+        Method(q, ".ctor", 1, SizeKind.Receiver,
+            space: SizeKind.Receiver, delta: SizeDeltaKind.Replace);
     }
 
     private void RegisterStack()
@@ -210,8 +379,14 @@ public sealed class OperationCatalog
         Method(s, "TryPop", 1, SizeKind.Constant,
             delta: SizeDeltaKind.Decrement);
         Method(s, "Peek", 0, SizeKind.Constant);
+        Method(s, "TryPeek", 1, SizeKind.Constant);
+        Method(s, "Contains", 1, SizeKind.Receiver);
+        Method(s, "ToArray", 0, SizeKind.Receiver,
+            space: SizeKind.Receiver, materializes: true);
         Method(s, "Clear", 0, SizeKind.Receiver,
             delta: SizeDeltaKind.Clear);
+        Method(s, ".ctor", 1, SizeKind.Receiver,
+            space: SizeKind.Receiver, delta: SizeDeltaKind.Replace);
     }
 
     private void RegisterLinkedList()
@@ -277,6 +452,119 @@ public sealed class OperationCatalog
             space: SizeKind.Receiver, delta: SizeDeltaKind.Increment);
         Method(sb, "ToString", 0, SizeKind.Receiver,
             space: SizeKind.Receiver, materializes: true);
+        Method(sb, "ToString", 2, SizeKind.Receiver,
+            space: SizeKind.Receiver, materializes: true);
+        Method(sb, "AppendLine", 0, SizeKind.Constant, CostKind.Amortized,
+            space: SizeKind.Receiver, delta: SizeDeltaKind.Increment);
+        Method(sb, "AppendLine", 1, SizeKind.Constant, CostKind.Amortized,
+            space: SizeKind.Receiver, delta: SizeDeltaKind.Increment);
+        Method(sb, "AppendJoin", 2, SizeKind.Receiver,
+            space: SizeKind.Receiver, delta: SizeDeltaKind.Increment);
+        Method(sb, "AppendFormat", 2, SizeKind.Receiver,
+            space: SizeKind.Receiver, delta: SizeDeltaKind.Increment);
+        Method(sb, "Insert", 2, SizeKind.Receiver,
+            delta: SizeDeltaKind.Increment);
+        Method(sb, "Remove", 2, SizeKind.Receiver,
+            delta: SizeDeltaKind.Decrement);
+        Method(sb, "Replace", 2, SizeKind.Receiver);
+        Method(sb, "Clear", 0, SizeKind.Constant,
+            delta: SizeDeltaKind.Clear);
+        Method(sb, "get_Capacity", 0, SizeKind.Constant);
+        Method(sb, "get_Chars", 1, SizeKind.Constant);
+        Method(sb, ".ctor", 1, SizeKind.Receiver,
+            space: SizeKind.Receiver, delta: SizeDeltaKind.Replace);
+    }
+
+    /// <summary>
+    /// Span / Memory helpers. These are the vectorized primitives real
+    /// hot paths use, and every one of them was falling through to an
+    /// invented O(1) before the catalog covered them.
+    /// </summary>
+    private void RegisterSpans()
+    {
+        const string ext = "System.MemoryExtensions";
+        foreach (var name in new[]
+        {
+            "IndexOf", "LastIndexOf", "IndexOfAny", "LastIndexOfAny",
+            "IndexOfAnyExcept", "Contains", "ContainsAny",
+            "SequenceEqual", "SequenceCompareTo", "StartsWith",
+            "EndsWith", "CopyTo", "TryCopyTo", "Fill", "Clear",
+            "Reverse", "Count", "CommonPrefixLength", "Trim",
+            "TrimStart", "TrimEnd", "Replace", "Split",
+        })
+        {
+            for (var arity = 1; arity <= 4; arity++)
+                Method(ext, name, arity, SizeKind.Receiver);
+        }
+
+        Method(ext, "Sort", 1, SizeKind.Receiver, timePower: 0, sorts: true);
+        Method(ext, "Sort", 2, SizeKind.Receiver, timePower: 0, sorts: true);
+        Method(ext, "Sort", 3, SizeKind.Receiver, timePower: 0, sorts: true);
+        Method(ext, "BinarySearch", 2, SizeKind.LogReceiver);
+        Method(ext, "BinarySearch", 3, SizeKind.LogReceiver);
+        Method(ext, "AsSpan", 1, SizeKind.Constant);
+        Method(ext, "AsSpan", 2, SizeKind.Constant);
+        Method(ext, "AsSpan", 3, SizeKind.Constant);
+        Method(ext, "AsMemory", 1, SizeKind.Constant);
+
+        foreach (var span in new[]
+        {
+            "System.Span`1", "System.ReadOnlySpan`1",
+            "System.Memory`1", "System.ReadOnlyMemory`1",
+        })
+        {
+            Method(span, "get_Length", 0, SizeKind.Constant);
+            Method(span, "get_IsEmpty", 0, SizeKind.Constant);
+            Method(span, "get_Item", 1, SizeKind.Constant);
+            Method(span, "get_Span", 0, SizeKind.Constant);
+            Method(span, "Slice", 1, SizeKind.Constant);
+            Method(span, "Slice", 2, SizeKind.Constant);
+            Method(span, "CopyTo", 1, SizeKind.Receiver);
+            Method(span, "TryCopyTo", 1, SizeKind.Receiver);
+            Method(span, "Fill", 1, SizeKind.Receiver);
+            Method(span, "Clear", 0, SizeKind.Receiver);
+            Method(span, "ToArray", 0, SizeKind.Receiver,
+                space: SizeKind.Receiver, materializes: true);
+        }
+
+        // SearchValues: O(n) build, then constant-time membership.
+        const string sv = "System.Buffers.SearchValues";
+        Method(sv, "Create", 1, SizeKind.Receiver,
+            space: SizeKind.Receiver, materializes: true);
+        Method("System.Buffers.SearchValues`1", "Contains", 1,
+            SizeKind.Constant);
+    }
+
+    /// <summary>
+    /// Frozen collections trade an expensive build for the fastest
+    /// possible reads — exactly the trade a complexity view should
+    /// make visible rather than hide.
+    /// </summary>
+    private void RegisterFrozen()
+    {
+        const string ext = "System.Collections.Frozen.FrozenDictionary";
+        Method(ext, "ToFrozenDictionary", 1, SizeKind.Receiver,
+            space: SizeKind.Receiver, materializes: true);
+        Method(ext, "ToFrozenDictionary", 2, SizeKind.Receiver,
+            space: SizeKind.Receiver, materializes: true);
+        Method(ext, "ToFrozenDictionary", 3, SizeKind.Receiver,
+            space: SizeKind.Receiver, materializes: true);
+        Method("System.Collections.Frozen.FrozenSet", "ToFrozenSet", 1,
+            SizeKind.Receiver, space: SizeKind.Receiver,
+            materializes: true);
+        Method("System.Collections.Frozen.FrozenSet", "ToFrozenSet", 2,
+            SizeKind.Receiver, space: SizeKind.Receiver,
+            materializes: true);
+
+        const string fd = "System.Collections.Frozen.FrozenDictionary`2";
+        Method(fd, "get_Count", 0, SizeKind.Constant);
+        Method(fd, "get_Item", 1, SizeKind.Constant);
+        Method(fd, "TryGetValue", 2, SizeKind.Constant);
+        Method(fd, "ContainsKey", 1, SizeKind.Constant);
+
+        const string fs = "System.Collections.Frozen.FrozenSet`1";
+        Method(fs, "get_Count", 0, SizeKind.Constant);
+        Method(fs, "Contains", 1, SizeKind.Constant);
     }
 
     private void RegisterImmutable()
@@ -320,41 +608,90 @@ public sealed class OperationCatalog
                 queryable);
         }
 
-        Linq("Where", 2);
-        Linq("Select", 2);
+        // Deferred, streaming: building the query is constant; the
+        // per-element cost is paid by whatever enumerates it.
+        foreach (var name in new[]
+        {
+            "Where", "Select", "Take", "TakeWhile", "Skip", "SkipWhile",
+            "Cast", "OfType", "Prepend", "Append", "DefaultIfEmpty",
+            "Index",
+        })
+        {
+            Linq(name, 1);
+            Linq(name, 2);
+        }
+
         Linq("SelectMany", 2, SizeKind.Receiver);
-        Linq("OrderBy", 2, SizeKind.Receiver, sorts: true);
-        Linq("OrderByDescending", 2, SizeKind.Receiver, sorts: true);
-        Linq("ThenBy", 2, SizeKind.Receiver, sorts: true);
-        Linq("ThenByDescending", 2, SizeKind.Receiver, sorts: true);
-        Linq("GroupBy", 2, SizeKind.Receiver, space: SizeKind.Receiver);
-        Linq("Distinct", 1, SizeKind.Receiver, space: SizeKind.Receiver);
-        Linq("ToList", 1, SizeKind.Receiver, deferred: false,
-            materializes: true, space: SizeKind.Receiver);
-        Linq("ToArray", 1, SizeKind.Receiver, deferred: false,
-            materializes: true, space: SizeKind.Receiver);
-        Linq("ToDictionary", 2, SizeKind.Receiver, deferred: false,
-            materializes: true, space: SizeKind.Receiver);
-        Linq("ToLookup", 2, SizeKind.Receiver, deferred: false,
-            materializes: true, space: SizeKind.Receiver);
-        Linq("Any", 1, SizeKind.Receiver, deferred: false);
-        Linq("Any", 2, SizeKind.Receiver, deferred: false);
-        Linq("All", 2, SizeKind.Receiver, deferred: false);
-        Linq("First", 1, SizeKind.Receiver, deferred: false);
-        Linq("First", 2, SizeKind.Receiver, deferred: false);
-        Linq("FirstOrDefault", 1, SizeKind.Receiver, deferred: false);
-        Linq("FirstOrDefault", 2, SizeKind.Receiver, deferred: false);
-        Linq("Single", 1, SizeKind.Receiver, deferred: false);
-        Linq("Single", 2, SizeKind.Receiver, deferred: false);
-        Linq("Count", 1, SizeKind.Receiver, deferred: false);
-        Linq("Count", 2, SizeKind.Receiver, deferred: false);
-        Linq("Contains", 2, SizeKind.Receiver, deferred: false);
-        Linq("Min", 1, SizeKind.Receiver, deferred: false);
-        Linq("Max", 1, SizeKind.Receiver, deferred: false);
-        Linq("Sum", 1, SizeKind.Receiver, deferred: false);
-        Linq("Aggregate", 2, SizeKind.Receiver, deferred: false);
-        Linq("Aggregate", 3, SizeKind.Receiver, deferred: false);
+        Linq("SelectMany", 3, SizeKind.Receiver);
+        Linq("TakeLast", 2, SizeKind.Receiver, space: SizeKind.Receiver);
+        Linq("SkipLast", 2, SizeKind.Receiver, space: SizeKind.Receiver);
+        Linq("Zip", 2, SizeKind.Receiver);
+        Linq("Zip", 3, SizeKind.Receiver);
+        Linq("Concat", 2, SizeKind.Receiver);
+
+        // Sorting operators. `sorts` makes the walker charge n log n
+        // even when the pipeline hides the comparer in an overload.
+        foreach (var name in new[]
+        {
+            "OrderBy", "OrderByDescending", "ThenBy", "ThenByDescending",
+        })
+        {
+            Linq(name, 2, SizeKind.Receiver, sorts: true);
+            Linq(name, 3, SizeKind.Receiver, sorts: true);
+        }
+
+        // .NET 9 added parameterless Order/OrderDescending.
+        Linq("Order", 1, SizeKind.Receiver, sorts: true);
+        Linq("Order", 2, SizeKind.Receiver, sorts: true);
+        Linq("OrderDescending", 1, SizeKind.Receiver, sorts: true);
+        Linq("OrderDescending", 2, SizeKind.Receiver, sorts: true);
+        Linq("Reverse", 1, SizeKind.Receiver, space: SizeKind.Receiver);
+
+        // Hash-backed set operators: linear, and they retain a set.
+        foreach (var name in new[]
+        {
+            "Distinct", "DistinctBy", "Union", "UnionBy", "Except",
+            "ExceptBy", "Intersect", "IntersectBy", "GroupBy",
+            "CountBy", "AggregateBy", "Chunk",
+        })
+        {
+            for (var arity = 1; arity <= 4; arity++)
+            {
+                Linq(name, arity, SizeKind.Receiver,
+                    space: SizeKind.Receiver);
+            }
+        }
+
+        // Materializing operators: pay the source and retain a copy.
+        foreach (var name in new[]
+        {
+            "ToList", "ToArray", "ToDictionary", "ToLookup", "ToHashSet",
+        })
+        {
+            for (var arity = 1; arity <= 4; arity++)
+            {
+                Linq(name, arity, SizeKind.Receiver, deferred: false,
+                    materializes: true, space: SizeKind.Receiver);
+            }
+        }
+
+        // Eager scans: no allocation, linear worst case.
+        foreach (var name in new[]
+        {
+            "Any", "All", "First", "FirstOrDefault", "Single",
+            "SingleOrDefault", "Last", "LastOrDefault", "Count",
+            "LongCount", "Contains", "Min", "Max", "MinBy", "MaxBy",
+            "Sum", "Average", "Aggregate", "ElementAt",
+            "ElementAtOrDefault", "SequenceEqual", "TryGetNonEnumeratedCount",
+        })
+        {
+            for (var arity = 1; arity <= 4; arity++)
+                Linq(name, arity, SizeKind.Receiver, deferred: false);
+        }
+
         Linq("AsEnumerable", 1, SizeKind.Constant, deferred: true);
+        Linq("Empty", 0, SizeKind.Constant, deferred: true);
         Linq("Repeat", 2, SizeKind.Constant, deferred: true);
+        Linq("Range", 2, SizeKind.Constant, deferred: true);
     }
 }

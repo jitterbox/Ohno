@@ -141,7 +141,7 @@ suggests the bench should be *widened*, not replaced.
 Severity: **S1** wrong output users would act on · **S2** materially
 degraded output or responsiveness · **S3** polish.
 
-### 3.1 [S1] An uncataloged `System.*` member is costed as O(1)
+### 3.1 [S1] An uncataloged `System.*` member is costed as O(1) — **fixed**
 
 `CSharpMethodAnalyzer.Calls.cs:98-108`:
 
@@ -183,7 +183,13 @@ and the headline is what the inline annotation shows.
 `System.*` member the safe default is `C(name)` (visible, honest, Low
 confidence), not `1`.
 
-### 3.2 [S1] `System.String` members are the opposite inconsistency
+**Fixed in this branch (PLAN Phase 1).** `IsSystemPrimitive` is gone;
+constant time now requires a catalog entry or a
+`ConstantTimePrimitives` entry, and the same rule was applied to
+constructors, property reads, and bodyless methods. `BclCatalogTests`
+asserts that a comparer overload never collapses to a constant.
+
+### 3.2 [S1] `System.String` members are the opposite inconsistency — **fixed**
 
 `string` *is* a collection by `IsCollection`, so `IsSystemPrimitive`
 returns false and every uncataloged string member falls to
@@ -203,6 +209,12 @@ contain **zero** uses of `Substring`, `Split`, `Take`, `Skip`, `Zip`,
 `Concat`, `MinBy`, `ToHashSet`, `Order`, or `Array.Copy`. The corpus is
 self-consistent with the catalog, so real-world code hits a cliff the
 tests cannot see.
+
+**Fixed in this branch.** The catalog gained the string, array, span,
+frozen-collection, and LINQ-overload surface, and
+`samples/roslyn/RoslynBclCatalog.cs` exists specifically to use
+everyday APIs rather than only the ones already known — the blind spot
+this finding is about.
 
 ### 3.3 [S2] Analyzer-internal algorithmic cost
 

@@ -106,12 +106,47 @@ internal static class SizeResolver
                 Resolve(invocation.Arguments[1].Value, state));
         }
 
+        if (TryTwoSource(invocation, state, out var combined))
+            return combined;
+
         if (invocation.Instance is not null)
             return Resolve(invocation.Instance, state);
         if (invocation.Arguments.Length > 0)
             return Resolve(invocation.Arguments[0].Value, state);
         return Cx.Var("n");
     }
+
+    /// <summary>
+    /// Operators that consume two sequences produce a result sized by
+    /// both. Keeping them independent is the point: <c>a.Concat(b)</c>
+    /// is |a| + |b|, not |a| — assuming otherwise would fold an
+    /// independent dimension into the receiver.
+    /// </summary>
+    private static bool TryTwoSource(
+        IInvocationOperation invocation,
+        AnalysisState state,
+        out ComplexityExpression size)
+    {
+        size = Cx.One;
+        if (!IsTwoSourceOperator(invocation.TargetMethod.Name))
+            return false;
+
+        var left = invocation.Instance
+            ?? invocation.Arguments.FirstOrDefault()?.Value;
+        var right = invocation.Instance is null
+            ? invocation.Arguments.Skip(1).FirstOrDefault()?.Value
+            : invocation.Arguments.FirstOrDefault()?.Value;
+        if (left is null || right is null) return false;
+        if (!DimensionInferrer.IsCollection(right.Type)) return false;
+
+        size = Cx.Add(Resolve(left, state), Resolve(right, state));
+        return true;
+    }
+
+    internal static bool IsTwoSourceOperator(string name) =>
+        name is "Concat" or "Union" or "UnionBy" or "Intersect"
+            or "IntersectBy" or "Except" or "ExceptBy" or "Zip"
+            or "SequenceEqual";
 
     private static ComplexityExpression FromArrayElement(
         IArrayElementReferenceOperation element, AnalysisState state)

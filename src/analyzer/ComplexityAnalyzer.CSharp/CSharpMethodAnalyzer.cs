@@ -98,8 +98,7 @@ public sealed partial class CSharpMethodAnalyzer
             return UnknownCall(method.Name, null, "no syntax");
 
         var body = TryGetBody(method, model);
-        if (body is null)
-            return ComposedCost.Unit("method", method.Name, RoslynSpans.Of(syntax));
+        if (body is null) return NoBody(method, syntax);
 
         var rec = RecurrenceAnalyzer.TrySolve(method, body, state);
         if (rec is not null) return rec;
@@ -196,6 +195,39 @@ public sealed partial class CSharpMethodAnalyzer
             ["The selection is not a statement inside a method."],
             [],
             "Select a statement or loop inside a method.");
+    }
+
+    /// <summary>
+    /// A method symbol with no body. An auto-implemented accessor
+    /// (<c>get;</c>) reads a compiler-generated field and is genuinely
+    /// constant; an abstract, extern, or partial declaration has an
+    /// implementation somewhere else, so its cost is a call rather
+    /// than free.
+    /// </summary>
+    private static ComposedCost NoBody(
+        IMethodSymbol method, SyntaxNode syntax)
+    {
+        if (IsAutoImplemented(method))
+        {
+            return ComposedCost.Unit(
+                "field", method.Name, RoslynSpans.Of(syntax));
+        }
+
+        return UnknownCall(
+            method.Name,
+            RoslynSpans.Of(syntax),
+            $"{method.Name} has no body in this compilation, so its "
+            + "cost is carried as a call instead of assumed constant");
+    }
+
+    private static bool IsAutoImplemented(IMethodSymbol method)
+    {
+        if (method.IsAbstract || method.IsExtern) return false;
+        return method.MethodKind
+            is MethodKind.PropertyGet
+            or MethodKind.PropertySet
+            or MethodKind.EventAdd
+            or MethodKind.EventRemove;
     }
 
     private static IOperation? TryGetBody(

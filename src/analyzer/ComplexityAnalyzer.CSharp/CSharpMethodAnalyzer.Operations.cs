@@ -1,4 +1,5 @@
 using ComplexityAnalyzer.Core;
+using ComplexityAnalyzer.DotNet;
 using Microsoft.CodeAnalysis;
 using Microsoft.CodeAnalysis.Operations;
 
@@ -306,17 +307,57 @@ public sealed partial class CSharpMethodAnalyzer
     private ComposedCost AnalyzePropertyRead(
         IPropertyReferenceOperation prop, AnalysisState state)
     {
-        if (prop.Parent is IAssignmentOperation) 
+        if (prop.Parent is IAssignmentOperation)
             return AnalyzeChildren(prop, state);
         var getter = prop.Property.GetMethod;
         if (getter is null) return AnalyzeChildren(prop, state);
         if (prop.Property.Name is "Length" or "Count" or "Chars")
             return AnalyzeChildren(prop, state);
-        if (getter.DeclaringSyntaxReferences.Length == 0)
+        if (getter.DeclaringSyntaxReferences.Length > 0)
+        {
+            return prop.SemanticModel is { } model
+                ? AnalyzeSymbol(getter, model, state)
+                : AnalyzeChildren(prop, state);
+        }
+
+        return MetadataPropertyRead(prop, getter, state);
+    }
+
+    /// <summary>
+    /// A property whose getter is not in this compilation. Reading a
+    /// stored field or a fixed-size view is O(1); everything else is
+    /// executable code with no summary, and gets carried as a call
+    /// rather than assumed free.
+    /// </summary>
+    private ComposedCost MetadataPropertyRead(
+        IPropertyReferenceOperation prop,
+        IMethodSymbol getter,
+        AnalysisState state)
+    {
+        // An auto-property on a type declared in this compilation has
+        // no getter syntax, but it is a field read, not unresolved work.
+        if (prop.Property.ContainingType?.OriginalDefinition
+            .DeclaringSyntaxReferences.Length > 0)
+        {
             return AnalyzeChildren(prop, state);
-        if (prop.SemanticModel is not { } model)
+        }
+
+        var type = SymbolKeys.TypeName(prop.Property.ContainingType);
+        var key = SymbolKeys.ForMethod(getter.OriginalDefinition);
+        if (key is not null && _catalog.TryGet(key, out _))
             return AnalyzeChildren(prop, state);
-        return AnalyzeSymbol(getter, model, state);
+        if (ConstantTimePrimitives.IsConstantAccessor(type, getter.Name))
+            return AnalyzeChildren(prop, state);
+
+        var children = AnalyzeChildren(prop, state);
+        var call = UnknownCall(
+            getter.Name,
+            RoslynSpans.Of(prop),
+            $"{type ?? prop.Property.Name}.{prop.Property.Name} has no "
+            + "cost summary, so reading it is carried as a call instead "
+            + "of assumed constant");
+        return CostComposer.Sequential(
+            new[] { children, call }, RoslynSpans.Of(prop));
     }
 
     private ComposedCost AnalyzeBinary(

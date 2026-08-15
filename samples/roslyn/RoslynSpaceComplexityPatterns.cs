@@ -185,9 +185,12 @@ public static class RoslynSpaceComplexityPatterns
     // -------------------------------------------------------------------------
     // 10. SLIDING WINDOW
     //
+    // Known Time: Θ(k + n)
     // Known Auxiliary Space: Θ(k)
     // Reason:
-    //   The queue retains at most k elements at any moment.
+    //   The queue retains at most k elements at any moment. Reserving
+    //   those k slots up front is Θ(k) work, and k is an independent
+    //   dimension — it is not folded into n by assuming k <= n.
     // -------------------------------------------------------------------------
     public static void SlidingWindow(int[] values, int k)
     {

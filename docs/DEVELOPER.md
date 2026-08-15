@@ -275,6 +275,45 @@ templates bind to the receiver (or LINQ source) size. Deferred LINQ
 is O(1) to build; materializing operators (`ToArray`, `string.Concat`)
 pay the source size. `Repeat` + `Concat` is element length × count.
 
+Two-source operators (`Concat`, `Union`, `Intersect`, `Except`, `Zip`,
+`SequenceEqual`, and the `…By` variants) are sized by **both** sides:
+`a.Concat(b)` is |a| + |b|. Folding the second source into the
+receiver would collapse an independent dimension, which §2.1 forbids.
+
+For a static helper, the size comes from the first non-literal
+collection argument, not from argument zero — otherwise
+`string.Join(", ", names)` would be sized by the separator and report
+constant time.
+
+### 3.5 O(1) is never a fallback
+
+**An unresolved executable operation costs `C(name)` at Low
+confidence.** Constant time has to be positively known, which means a
+catalog entry or an entry in `ConstantTimePrimitives`. There is no
+"it looked like a primitive" path, because that is precisely how an
+`OrderBy(keySelector, comparer)` used to report O(1).
+
+`ConstantTimePrimitives` is keyed by containing type, not by member
+name: `int.GetHashCode()` is Θ(1) and `string.GetHashCode()` is
+Θ(length). It holds whole constant types (`System.Math`, `System.GC`,
+`System.Console` — Ohno makes no I/O claim), fixed-width scalar
+members, cached-singleton accessors (`StringComparer.Ordinal`), and
+individually listed members.
+
+The rule applies at every site that could invent a constant:
+
+| Site | Constant only when |
+|---|---|
+| Call | catalog hit, or `ConstantTimePrimitives.IsConstant` |
+| Constructor | catalog hit, collection copy, declared in this compilation, or a parameterless BCL ctor |
+| Property read | getter walked, catalog hit, declaring type is in this compilation (auto-properties), or a listed accessor |
+| Method with no body | auto-implemented accessor. Abstract / extern / partial are calls |
+
+Genuinely free operations stay free and are enumerated so the audit
+is reviewable: unreachable code, a declarator with no initializer, an
+empty switch, and an `ILocalFunctionOperation` **declaration** (cost is
+paid at the call — §2.4).
+
 ## 4. Test fixtures
 
 All live under `samples/` and are asserted in
@@ -335,6 +374,8 @@ that window/Fibonacci are Medium with a matching reason.
 | Suite | Role |
 |---|---|
 | `CardinalityGapTests` | Worklists, SizeDelta, heapify, SortedSet, Span, CFG |
+| `BclCatalogTests` | Everyday BCL: comparer/selector overloads, string members, spans, frozen sets, two-source LINQ. Asserts no bound collapses to a constant and no ordinary call leaves a `C(name)` |
+| `AnalyzerBenchmarkTests` | Wall-clock ceilings for the debounce path; prints per-fixture and per-function timings |
 | `AcceptanceTests` | Linear/nested/triangular loops, dictionary writes, literals |
 | `RecursionAndLinqTests` | Linear recurrence, merge-sort shape, `IQueryable` unknown |
 | `AlgebraTests` | Simplifier / dominance |
@@ -369,6 +410,17 @@ that window/Fibonacci are Medium with a matching reason.
 Register in `OperationCatalog` with type, name, arity, `SizeKind`,
 and `CostKind`. Use `Expected` / `Amortized` when the textbook bound
 is not worst-case (hash table, `List.Add`). Add an acceptance test.
+
+**Register every arity.** The catalog is keyed by arity, so
+`OrderBy#2` does not cover `OrderBy(keySelector, comparer)`. A missing
+overload is no longer silently constant — it becomes `C(name)` at Low
+confidence (§3.5) — but that is a visible defect, not a correct
+answer. Add the case to `samples/roslyn/RoslynBclCatalog.cs`, which
+exists to use everyday APIs rather than only the ones already known.
+
+Only put a member in `ConstantTimePrimitives` when its cost is fixed
+regardless of any input size. Anything size-dependent belongs in the
+catalog with a real template.
 
 ### Add a hazard pattern
 

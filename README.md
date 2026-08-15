@@ -65,6 +65,11 @@ project graph and records a warning if it has to fall back.
 When a conclusive bound cannot be justified from the source, Ohno reports
 **O(unknown)** and a reason — it does not invent O(1).
 
+That holds for library calls too. A member Ohno has no cost summary for
+is carried as `C(name)` at Low confidence, naming what is missing —
+never assumed free. Constant time is something Ohno has to know, not
+something it falls back to.
+
 ## Supported languages
 
 | Language | Default | Engine |
