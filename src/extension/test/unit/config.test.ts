@@ -15,6 +15,7 @@ const config = (languages: Record<string, boolean>): OhnoConfig => ({
   nestingDepth: 2,
   showSpace: true,
   showConfidence: true,
+  accessors: 'nontrivial',
   debounceMs: 250,
   maxFileSizeKb: 500,
   analyzerPath: '',

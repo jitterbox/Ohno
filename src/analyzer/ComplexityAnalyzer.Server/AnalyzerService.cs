@@ -352,9 +352,28 @@ public sealed class AnalyzerService
     private static RangeDto MapSpan(LineSpan span) =>
         new(span.StartLine, span.StartCharacter, span.EndLine, span.EndCharacter);
 
+    /// <summary>
+    /// A name a reader recognizes. Accessors are metadata-named
+    /// <c>get_Foo</c> / <c>set_Foo</c>, and indexers are <c>this[]</c>;
+    /// both read better as the member plus the accessor.
+    /// </summary>
     private static string DisplayName(
-        Microsoft.CodeAnalysis.IMethodSymbol symbol) =>
-        symbol.Name is "<Main>$" ? "Main" : symbol.Name;
+        Microsoft.CodeAnalysis.IMethodSymbol symbol)
+    {
+        if (symbol.Name is "<Main>$") return "Main";
+        if (symbol.AssociatedSymbol is { } member)
+        {
+            var accessor = symbol.MethodKind switch
+            {
+                Microsoft.CodeAnalysis.MethodKind.PropertyGet => ".get",
+                Microsoft.CodeAnalysis.MethodKind.PropertySet => ".set",
+                _ => string.Empty,
+            };
+            return member.Name + accessor;
+        }
+
+        return symbol.Name;
+    }
 
     private static string KindOf(Microsoft.CodeAnalysis.MethodKind kind) =>
         kind switch
@@ -362,7 +381,11 @@ public sealed class AnalyzerService
             Microsoft.CodeAnalysis.MethodKind.Constructor => "constructor",
             Microsoft.CodeAnalysis.MethodKind.LocalFunction => "localFunction",
             Microsoft.CodeAnalysis.MethodKind.AnonymousFunction => "lambda",
-            Microsoft.CodeAnalysis.MethodKind.UserDefinedOperator => "operator",
+            Microsoft.CodeAnalysis.MethodKind.UserDefinedOperator
+                or Microsoft.CodeAnalysis.MethodKind.Conversion => "operator",
+            Microsoft.CodeAnalysis.MethodKind.PropertyGet
+                or Microsoft.CodeAnalysis.MethodKind.PropertySet =>
+                "property",
             _ => "method",
         };
 }

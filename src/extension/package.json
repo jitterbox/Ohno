@@ -84,6 +84,21 @@
           "default": true,
           "description": "Include the confidence indicator in annotations."
         },
+        "ohno.annotations.accessors": {
+          "type": "string",
+          "enum": [
+            "nontrivial",
+            "always",
+            "off"
+          ],
+          "enumDescriptions": [
+            "Annotate a property accessor, indexer, or operator only when its result is not a high-confidence O(1).",
+            "Annotate every analyzed accessor, indexer, and operator.",
+            "Never annotate accessors, indexers, or operators inline."
+          ],
+          "default": "nontrivial",
+          "markdownDescription": "Which accessors, indexers, and operators get an **inline** annotation. They are always analyzed and always listed in the Complexity view; this only controls the editor decoration."
+        },
         "ohno.performance.debounceMs": {
           "type": "number",
           "default": 250,
@@ -334,6 +349,8 @@
     "test:e2e": "playwright test",
     "test:vscode": "node ../../scripts/e2e-vscode.mjs",
     "icons": "node ../../scripts/build-icons.mjs",
+    "fixtures": "node ../../scripts/generate-fixtures.mjs",
+    "probe": "node ../../scripts/probe-rpc.mjs",
     "package": "vsce package --no-rewrite-relative-links",
     "vscode:prepublish": "npm run compile"
   },

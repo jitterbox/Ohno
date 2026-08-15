@@ -5,6 +5,7 @@ import {
   headlineRender,
   headlineText,
 } from '../../src/ui/decorationFactory';
+import { shouldAnnotate } from '../../src/ui/annotationController';
 import { toCssInjection } from '../../src/ui/cssInjection';
 import { ThemeColor } from 'vscode';
 import type { FunctionComplexity } from '../../src/analysis/types';
@@ -42,6 +43,7 @@ const config: OhnoConfig = {
   nestingDepth: 2,
   showSpace: true,
   showConfidence: true,
+  accessors: 'nontrivial',
   debounceMs: 250,
   maxFileSizeKb: 500,
   analyzerPath: '',
@@ -94,5 +96,51 @@ describe('headlineRender', () => {
     expect(after.backgroundColor).toEqual(
       new ThemeColor(confidenceBackground('high')),
     );
+  });
+});
+
+describe('shouldAnnotate', () => {
+  const getter: FunctionComplexity = {
+    ...fn,
+    name: 'Total.get',
+    kind: 'property',
+    time: 'O(1)',
+    space: 'O(1)',
+  };
+
+  it('annotates ordinary methods regardless of the setting', () => {
+    expect(shouldAnnotate(fn, { ...config, accessors: 'off' })).toBe(true);
+  });
+
+  it('skips a trivial accessor by default', () => {
+    expect(shouldAnnotate(getter, config)).toBe(false);
+  });
+
+  it('annotates an accessor that costs something', () => {
+    const scanning = { ...getter, time: 'O(n)' };
+    expect(shouldAnnotate(scanning, config)).toBe(true);
+  });
+
+  it('annotates a trivial accessor whose confidence is not high', () => {
+    const unsure = { ...getter, confidence: 'medium' as const };
+    expect(shouldAnnotate(unsure, config)).toBe(true);
+  });
+
+  it('annotates every accessor when set to always', () => {
+    expect(
+      shouldAnnotate(getter, { ...config, accessors: 'always' }),
+    ).toBe(true);
+  });
+
+  it('skips a costly accessor when set to off', () => {
+    const scanning = { ...getter, time: 'O(n)' };
+    expect(
+      shouldAnnotate(scanning, { ...config, accessors: 'off' }),
+    ).toBe(false);
+  });
+
+  it('treats operators like accessors', () => {
+    const op = { ...getter, name: 'op_Addition', kind: 'operator' as const };
+    expect(shouldAnnotate(op, config)).toBe(false);
   });
 });

@@ -32,6 +32,34 @@ describe('projectNear', () => {
     }
   });
 
+  it('finds a slnx solution', () => {
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), 'ohno-slnx-'));
+    try {
+      fs.writeFileSync(path.join(root, 'App.csproj'), '<Project />');
+      fs.writeFileSync(path.join(root, 'App.slnx'), '<Solution />');
+      const file = path.join(root, 'Use.cs');
+      fs.writeFileSync(file, '');
+      expect(projectNear(file)).toBe(path.join(root, 'App.slnx'));
+    } finally {
+      fs.rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  it('prefers a slnx above the nearest csproj', () => {
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), 'ohno-slnx-up-'));
+    try {
+      const lib = path.join(root, 'Lib');
+      fs.mkdirSync(lib);
+      fs.writeFileSync(path.join(root, 'App.slnx'), '<Solution />');
+      fs.writeFileSync(path.join(lib, 'Lib.csproj'), '<Project />');
+      const file = path.join(lib, 'Use.cs');
+      fs.writeFileSync(file, '');
+      expect(projectNear(file)).toBe(path.join(root, 'App.slnx'));
+    } finally {
+      fs.rmSync(root, { recursive: true, force: true });
+    }
+  });
+
   it('prefers a sln above the nearest csproj', () => {
     const root = fs.mkdtempSync(path.join(os.tmpdir(), 'ohno-above-'));
     try {
@@ -57,6 +85,16 @@ describe('SolutionBinder', () => {
     await binder.bind('/tmp/App.sln');
     await binder.bind('/tmp/Lib.csproj');
     expect(calls).toEqual(['/tmp/App.sln']);
+  });
+
+  it('does not replace a slnx with a csproj', async () => {
+    const calls: string[] = [];
+    const binder = new SolutionBinder(async (p) => {
+      calls.push(p);
+    });
+    await binder.bind('/tmp/App.slnx');
+    await binder.bind('/tmp/Lib.csproj');
+    expect(calls).toEqual(['/tmp/App.slnx']);
   });
 
   it('retries a failed bind', async () => {

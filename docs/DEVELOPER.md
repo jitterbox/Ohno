@@ -429,6 +429,12 @@ that window/Fibonacci are Medium with a matching reason.
   debounced (≤ 200 ms), ticketed so a stale response cannot land,
   and stored separately from document functions.
 - Inline annotations are gated by `ohno.annotations.showInline`.
+- Accessors, indexers, and operators are **analyzed** like any other
+  member and always appear in the panel; `ohno.annotations.accessors`
+  controls only whether they get an inline decoration, defaulting to
+  `nontrivial` so a class of plain properties does not line the margin
+  with `O(1)`. Auto-implemented accessors (`get;`) have no body and
+  produce no result at all.
 - Hover markdown is implemented but not registered by default; the
   panel is the primary UI.
 - Protocol field names are camelCase in TypeScript and PascalCase on

@@ -320,7 +320,7 @@ expression or a giant initializer can overflow the stack and take the
 server process down. The client recovers by respawning, but the
 workspace/solution binding is lost.
 
-### 3.7 [S2] `.slnx` is invisible to the extension
+### 3.7 [S2] `.slnx` is invisible to the extension — **fixed**
 
 Roslyn 5.x `MSBuildWorkspace.OpenSolutionAsync` supports `.slnx`, and
 `DeepWorkspace.OpenAfterLocatorAsync` (`:106`) routes anything not
@@ -336,7 +336,7 @@ Ohno cannot do project-backed analysis of itself. Now that the analyzer
 builds on the .NET 10 SDK (§1.1), the server half is ready and only the
 extension-side discovery is missing — PLAN 4.1.
 
-### 3.8 [S2] Whole classes of members are never annotated
+### 3.8 [S2] Whole classes of members are never annotated — **fixed**
 
 `CSharpFileAnalyzer.TryGetMethod` (`:103-127`) matches only
 `MethodDeclarationSyntax` and `ConstructorDeclarationSyntax`. So
@@ -361,7 +361,7 @@ choice — nothing in the docs claims accessors are out of scope. (Local
 functions *are* documented as deliberately not top-level results;
 that one is intentional — see §4.)
 
-### 3.9 [S3] Smaller items
+### 3.9 [S3] Smaller items — **mostly fixed**
 
 | Item | Where | Note |
 |---|---|---|

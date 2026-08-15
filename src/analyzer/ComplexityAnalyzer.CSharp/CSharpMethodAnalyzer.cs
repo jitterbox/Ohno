@@ -142,7 +142,10 @@ public sealed partial class CSharpMethodAnalyzer
         if (hops <= 0) return parts[0];
         var parent = parts[0].Parent;
         if (parent is null) return parts[0];
-        if (parent.ChildOperations.Count() > 64) return parts[0];
+        // Bounded probe: a wide parent means the merge would cover
+        // far more than the selection, and counting every child of a
+        // generated initializer is itself the cost being avoided.
+        if (parent.ChildOperations.Skip(64).Any()) return parts[0];
         return MergeUntil([parent], hops - 1);
     }
 

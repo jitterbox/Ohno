@@ -18,7 +18,8 @@ server. TypeScript is not a selectable language in this release.
 
 ## What you see
 
-Inline, at the end of a function signature:
+Inline, at the end of a function signature — and at the end of a
+property accessor, indexer, or operator that costs something:
 
 ```
 Time O(n log k) · Space O(k) · medium
@@ -44,9 +45,9 @@ than one approach remains, a hint asks you to narrow the selection.
 Clear the selection to return to the whole function. Inline
 annotations stay per-function; they do not follow the selection.
 
-Automatic analysis is the **fast** tier: it uses a loaded `.sln`,
-or the `.csproj` found by walking up from the file, when that
-workspace is ready. Otherwise it uses an ad-hoc compilation of the
+Automatic analysis is the **fast** tier: it uses a loaded `.sln` or
+`.slnx`, or the `.csproj` found by walking up from the file, when
+that workspace is ready. Otherwise it uses an ad-hoc compilation of the
 buffer. Deep analysis (`Ohno: Run Deep Analysis`) waits for the
 project graph and records a warning if it has to fall back.
 
@@ -100,6 +101,7 @@ TypeScript is not selectable.
 | `ohno.annotations.nestingDepth` | `2` | Nested subtotal depth |
 | `ohno.annotations.showSpace` | `true` | Include auxiliary space |
 | `ohno.annotations.showConfidence` | `true` | Include confidence in the annotation |
+| `ohno.annotations.accessors` | `nontrivial` | Which accessors/operators get an inline annotation: `nontrivial`, `always`, `off` |
 | `ohno.performance.debounceMs` | `250` | Re-analyze delay after edits |
 | `ohno.performance.maxFileSizeKb` | `500` | Skip huge files (`0` = no limit) |
 | `ohno.csharp.analyzerPath` | `""` | Override the bundled Roslyn server |
