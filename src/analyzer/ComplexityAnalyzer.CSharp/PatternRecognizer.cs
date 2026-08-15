@@ -31,7 +31,7 @@ internal static class PatternRecognizer
         if (body is null) return [];
         var hits = new List<RecognizedPattern>();
         var facts = new Dictionary<IOperation, LoopFacts>();
-        Collect(method, body, inLoop: false, hits, facts);
+        Collect(method, body, inLoop: false, hits, facts, depth: 0);
         return hits.DistinctBy(h => h.Id).ToArray();
     }
 
@@ -40,14 +40,16 @@ internal static class PatternRecognizer
         IOperation operation,
         bool inLoop,
         List<RecognizedPattern> hits,
-        Dictionary<IOperation, LoopFacts> facts)
+        Dictionary<IOperation, LoopFacts> facts,
+        int depth)
     {
+        if (depth >= AnalysisState.MaxOperationDepth) return;
         var hit = Match(method, operation, inLoop, facts);
         if (hit is not null) hits.Add(hit);
         var nested = inLoop || operation is IForLoopOperation
             or IForEachLoopOperation or IWhileLoopOperation;
         foreach (var child in operation.ChildOperations)
-            Collect(method, child, nested, hits, facts);
+            Collect(method, child, nested, hits, facts, depth + 1);
     }
 
     /// <summary>

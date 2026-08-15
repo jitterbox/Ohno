@@ -33,9 +33,14 @@ public sealed partial class CSharpMethodAnalyzer
     public ComplexityResult Analyze(
         IMethodSymbol method,
         SemanticModel model,
-        AnalysisTier tier)
+        AnalysisTier tier,
+        CancellationToken token = default)
     {
-        var state = new AnalysisState(tier) { Catalog = _catalog };
+        var state = new AnalysisState(tier)
+        {
+            Catalog = _catalog,
+            Token = token,
+        };
         DimensionInferrer.Infer(method, state);
         var cost = AnalyzeSymbol(method, model, state);
         var body = TryGetBody(method, model);
@@ -47,9 +52,14 @@ public sealed partial class CSharpMethodAnalyzer
         IMethodSymbol method,
         SemanticModel model,
         LineSpan span,
-        AnalysisTier tier)
+        AnalysisTier tier,
+        CancellationToken token = default)
     {
-        var state = new AnalysisState(tier) { Catalog = _catalog };
+        var state = new AnalysisState(tier)
+        {
+            Catalog = _catalog,
+            Token = token,
+        };
         DimensionInferrer.Infer(method, state);
         var body = TryGetBody(method, model);
         var parts = SelectionFragment.Extract(

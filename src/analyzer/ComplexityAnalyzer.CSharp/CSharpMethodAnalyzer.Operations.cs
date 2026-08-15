@@ -39,6 +39,57 @@ public sealed partial class CSharpMethodAnalyzer
     /// </remarks>
     internal ComposedCost Analyze(IOperation operation, AnalysisState state)
     {
+        state.Token.ThrowIfCancellationRequested();
+        if (state.OperationDepth >= AnalysisState.MaxOperationDepth)
+            return TooDeep(operation, state);
+
+        state.OperationDepth++;
+        try
+        {
+            return AnalyzeOperation(operation, state);
+        }
+        finally
+        {
+            state.OperationDepth--;
+        }
+    }
+
+    /// <summary>
+    /// Refuses to recurse further rather than risking the stack. The
+    /// result is an honest unknown, not a constant: work that was not
+    /// examined has not been shown to be free.
+    /// </summary>
+    private static ComposedCost TooDeep(
+        IOperation operation, AnalysisState state)
+    {
+        state.Note(
+            AnalysisConfidence.Unknown,
+            "The expression nests deeper than the analyzer walks, so "
+            + "part of this method was not examined.");
+        return new ComposedCost
+        {
+            Time = Cx.Unknown("nesting depth"),
+            Space = Cx.Unknown("nesting depth"),
+            Confidence = AnalysisConfidence.Unknown,
+            Evidence = ComplexityEvidence.Leaf(
+                "depth",
+                "nesting limit reached",
+                Cx.Unknown("nesting depth"),
+                RoslynSpans.Of(operation)),
+            Warnings = new[]
+            {
+                new AnalysisWarning(
+                    "Analysis stopped at "
+                    + AnalysisState.MaxOperationDepth
+                    + " levels of nesting.",
+                    RoslynSpans.Of(operation)),
+            },
+        };
+    }
+
+    private ComposedCost AnalyzeOperation(
+        IOperation operation, AnalysisState state)
+    {
         if (operation.Syntax is not null
             && state.UnreachableSyntax.Contains(operation.Syntax))
         {

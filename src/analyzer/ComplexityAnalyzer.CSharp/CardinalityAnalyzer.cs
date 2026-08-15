@@ -20,7 +20,7 @@ internal static class CardinalityAnalyzer
     {
         MarkUnreachable(body, state);
         MarkLoopIndices(body, model, state);
-        ApplyTree(body, Cx.One, state);
+        ApplyTree(body, Cx.One, state, depth: 0);
         HeapBoundDetector.Detect(body, state);
         WorklistBoundDetector.Detect(body, state);
         Publish(state);
@@ -145,13 +145,16 @@ internal static class CardinalityAnalyzer
     private static void ApplyTree(
         IOperation operation,
         ComplexityExpression bound,
-        AnalysisState state)
+        AnalysisState state,
+        int depth)
     {
+        if (depth >= AnalysisState.MaxOperationDepth) return;
+        state.Token.ThrowIfCancellationRequested();
         if (IsUnreachable(operation, state)) return;
         ApplyNode(operation, bound, state);
         var next = LoopBound(operation, state) ?? bound;
         foreach (var child in operation.ChildOperations)
-            ApplyTree(child, next, state);
+            ApplyTree(child, next, state, depth + 1);
     }
 
     private static void ApplyNode(

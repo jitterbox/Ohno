@@ -15,7 +15,8 @@ public sealed class AnalyzerService
     private readonly DeepWorkspace _workspace = new();
     private readonly object _solutionGate = new();
     private Task? _solutionTask;
-    private CancellationTokenSource? _fastCts;
+    private readonly CancelSlot _documentRuns = new();
+    private readonly CancelSlot _selectionRuns = new();
     private JsonRpc? _rpc;
 
     public void Attach(JsonRpc rpc) => _rpc = rpc;
@@ -62,7 +63,9 @@ public sealed class AnalyzerService
         AnalysisTier tier,
         CancellationToken token)
     {
-        using var linked = LinkFastCancel(tier, token);
+        var slot = SlotFor(tier, request);
+        using var linked = slot?.Replace(token)
+            ?? CancellationTokenSource.CreateLinkedTokenSource(token);
         try
         {
             var analysis = await AnalyzeFileAsync(
@@ -78,7 +81,48 @@ public sealed class AnalyzerService
         }
         finally
         {
-            Interlocked.CompareExchange(ref _fastCts, null, linked);
+            slot?.Release(linked);
+        }
+    }
+
+    /// <summary>
+    /// Superseding only applies within a kind. Document and selection
+    /// analysis are both Fast and both arrive on <c>ohno/analyze</c>,
+    /// so a single slot made them cancel each other: an edit with an
+    /// active selection scheduled both, the document request landed
+    /// second, and the selection result was dropped every time.
+    /// Deep runs are user-initiated and are never superseded.
+    /// </summary>
+    private CancelSlot? SlotFor(AnalysisTier tier, AnalyzeRequest request)
+    {
+        if (tier != AnalysisTier.Fast) return null;
+        return request.Selection is null ? _documentRuns : _selectionRuns;
+    }
+
+    /// <summary>
+    /// Holds the one in-flight request of a kind, cancelling the
+    /// previous one when a newer request supersedes it.
+    /// </summary>
+    private sealed class CancelSlot
+    {
+        private CancellationTokenSource? _current;
+
+        public CancellationTokenSource Replace(CancellationToken token)
+        {
+            var linked =
+                CancellationTokenSource.CreateLinkedTokenSource(token);
+            TryCancel(Interlocked.Exchange(ref _current, linked));
+            return linked;
+        }
+
+        public void Release(CancellationTokenSource source) =>
+            Interlocked.CompareExchange(ref _current, null, source);
+
+        private static void TryCancel(CancellationTokenSource? source)
+        {
+            if (source is null) return;
+            try { source.Cancel(); }
+            catch (ObjectDisposedException) { }
         }
     }
 
@@ -235,21 +279,6 @@ public sealed class AnalyzerService
         }
     }
 
-    private CancellationTokenSource LinkFastCancel(
-        AnalysisTier tier, CancellationToken token)
-    {
-        var linked = CancellationTokenSource.CreateLinkedTokenSource(token);
-        if (tier == AnalysisTier.Fast)
-            TryCancel(Interlocked.Exchange(ref _fastCts, linked));
-        return linked;
-    }
-
-    private static void TryCancel(CancellationTokenSource? source)
-    {
-        if (source is null) return;
-        try { source.Cancel(); }
-        catch (ObjectDisposedException) { }
-    }
 
     private static FunctionDto MapFunction(
         AnalyzedFunction function,

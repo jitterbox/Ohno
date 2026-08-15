@@ -67,6 +67,22 @@ internal sealed class AnalysisState
 
     public const int MaxDepth = 8;
 
+    /// <summary>Current nesting inside one method's operation tree.</summary>
+    public int OperationDepth { get; set; }
+
+    /// <summary>
+    /// Cap on operation-tree recursion. <see cref="MaxDepth"/> bounds
+    /// how many methods deep the walk goes; this bounds how deep a
+    /// single body may nest. Generated code — a long chained
+    /// expression, a deeply nested initializer — can otherwise recurse
+    /// far enough to overflow the stack, and the stack belongs to the
+    /// analyzer server process, so the whole session dies with it.
+    /// </summary>
+    public const int MaxOperationDepth = 400;
+
+    /// <summary>Cancels a walk whose result nobody is waiting for.</summary>
+    public CancellationToken Token { get; set; }
+
     public List<InputDimension> Dimensions { get; } = [];
 
     public List<AnalysisWarning> Warnings { get; } = [];

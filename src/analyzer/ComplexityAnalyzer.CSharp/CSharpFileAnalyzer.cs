@@ -55,7 +55,7 @@ public sealed class CSharpFileAnalyzer
             token.ThrowIfCancellationRequested();
             if (!TryGetMethod(node, model, out var method, out var signature))
                 continue;
-            var result = _methods.Analyze(method, model, tier);
+            var result = _methods.Analyze(method, model, tier, token);
             var range = RoslynSpans.Of(node) ?? signature;
             functions.Add(
                 new AnalyzedFunction(method, result, range, signature));
@@ -93,7 +93,8 @@ public sealed class CSharpFileAnalyzer
             return new FileAnalysis([], [warning]);
         }
 
-        var result = _methods.AnalyzeSelection(method, model, span, tier);
+        var result = _methods.AnalyzeSelection(
+            method, model, span, tier, token);
         var range = result.Evidence.Span ?? span;
         // File-level bind warnings are a property of the document, not
         // of the span, and the document pass already produced them.
@@ -153,7 +154,7 @@ public sealed class CSharpFileAnalyzer
         var signature = RoslynSpans.Of(globals[0])
             ?? new LineSpan(0, 0, 0, 0);
         var range = SpanOfGlobals(globals, signature);
-        var result = _methods.Analyze(main, model, tier);
+        var result = _methods.Analyze(main, model, tier, token);
         functions.Insert(
             0, new AnalyzedFunction(main, result, range, signature));
     }

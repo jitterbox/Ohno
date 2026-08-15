@@ -284,7 +284,7 @@ Two corrections to what this audit assumed before measuring:
 The dominant cost is the per-method walk, which is what §3.3 is about,
 and 4–6 ms/function is the number Phase 2 has to move.
 
-### 3.5 [S2] Selection and document analyses cancel each other (correctness, not cost)
+### 3.5 [S2] Selection and document analyses cancel each other — **fixed**
 
 `AnalyzerService.LinkFastCancel` (`AnalyzerService.cs:238`) keeps **one**
 `_fastCts` for the whole Fast tier. Selection analysis uses
@@ -302,7 +302,11 @@ The client-side ticketing (`selectionVersion` / `version`) is correct;
 the server-side single-slot cancellation is what collides. Cancellation
 needs to be keyed by request kind.
 
-### 3.6 [S2] No cancellation or depth guard inside the method walker
+**Fixed in this branch (PLAN 3.1).** `CancelSlot` holds one in-flight
+request per kind. Verified against the bug: restoring the shared slot
+makes the new test fail.
+
+### 3.6 [S2] No cancellation or depth guard inside the method walker — **fixed**
 
 `CSharpMethodAnalyzer` takes no `CancellationToken`. `CSharpFileAnalyzer`
 checks the token *between* methods (`:54`), so a single pathological

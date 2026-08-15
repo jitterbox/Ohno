@@ -285,7 +285,38 @@ collection argument, not from argument zero — otherwise
 `string.Join(", ", names)` would be sized by the separator and report
 constant time.
 
-### 3.5 O(1) is never a fallback
+### 3.5 Limits that keep the server alive
+
+The analyzer is a long-lived stdio process shared by the whole editor
+session, so a crash costs the loaded workspace, not just one result.
+
+`AnalysisState.MaxDepth` (8) bounds how many **methods** deep the walk
+follows calls. `AnalysisState.MaxOperationDepth` (400) bounds how deep
+a **single body** may nest, and guards the cost walk, the pattern walk,
+and the cardinality walk. Generated code — a long chained expression, a
+deeply nested initializer — otherwise recurses far enough to overflow
+the stack.
+
+Past the operation cap the result is `O(unknown)` with a reason, never
+a constant: work that was not examined has not been shown to be free.
+The cap is a floor against machine-written code, not a budget ordinary
+code approaches, and `OrdinaryNesting_IsStillAnalyzedNormally` pins
+that distance.
+
+`AnalysisState.Token` is checked inside the walk, so a superseded
+analysis stops instead of finishing work nobody is waiting for.
+
+### 3.6 One in-flight request per kind
+
+Document and selection analysis are both Fast and both arrive on
+`ohno/analyze`. `AnalyzerService` keeps a **separate `CancelSlot` per
+kind**, so a newer document analysis supersedes only the previous
+document analysis. A single shared slot made them cancel each other:
+an edit with an active selection schedules both, the document request
+lands second, and the selection result was dropped every time. Deep
+runs are user-initiated and are never superseded.
+
+### 3.7 O(1) is never a fallback
 
 **An unresolved executable operation costs `C(name)` at Low
 confidence.** Constant time has to be positively known, which means a
@@ -375,7 +406,8 @@ that window/Fibonacci are Medium with a matching reason.
 |---|---|
 | `CardinalityGapTests` | Worklists, SizeDelta, heapify, SortedSet, Span, CFG |
 | `BclCatalogTests` | Everyday BCL: comparer/selector overloads, string members, spans, frozen sets, two-source LINQ. Asserts no bound collapses to a constant and no ordinary call leaves a `C(name)` |
-| `AnalyzerBenchmarkTests` | Wall-clock ceilings for the debounce path; prints per-fixture and per-function timings |
+| `AnalyzerBenchmarkTests` | Wall-clock ceilings for the debounce path; prints per-fixture and per-function timings. Numbers are indicative — the same fixture has varied 2x run to run — so the ceiling is the contract, not the printed figure |
+| `RobustnessTests` | Generated-code shapes that must degrade rather than crash: 5,000-term expressions, 20,000-element initializers, 600-deep nesting, plus cancellation reaching inside a single method |
 | `AcceptanceTests` | Linear/nested/triangular loops, dictionary writes, literals |
 | `RecursionAndLinqTests` | Linear recurrence, merge-sort shape, `IQueryable` unknown |
 | `AlgebraTests` | Simplifier / dominance |
@@ -414,7 +446,7 @@ is not worst-case (hash table, `List.Add`). Add an acceptance test.
 **Register every arity.** The catalog is keyed by arity, so
 `OrderBy#2` does not cover `OrderBy(keySelector, comparer)`. A missing
 overload is no longer silently constant — it becomes `C(name)` at Low
-confidence (§3.5) — but that is a visible defect, not a correct
+confidence (§3.7) — but that is a visible defect, not a correct
 answer. Add the case to `samples/roslyn/RoslynBclCatalog.cs`, which
 exists to use everyday APIs rather than only the ones already known.
 
