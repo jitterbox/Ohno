@@ -2,8 +2,14 @@ import * as vscode from 'vscode';
 import type { AnalyzeResponse, FunctionComplexity } from '../analysis/types';
 import type { DeepRun } from './deepDiff';
 
+export interface SelectionAnalysis {
+  version: number;
+  function: FunctionComplexity;
+}
+
 export class ResultStore {
   private readonly byUri = new Map<string, AnalyzeResponse>();
+  private readonly selections = new Map<string, SelectionAnalysis>();
   private readonly deepRuns = new Map<string, DeepRun>();
   private readonly emitter = new vscode.EventEmitter<string>();
   readonly onDidChange = this.emitter.event;
@@ -48,6 +54,30 @@ export class ResultStore {
     this.emitter.fire(uri.toString());
   }
 
+  setSelection(
+    uri: string,
+    version: number,
+    fn: FunctionComplexity,
+  ): void {
+    this.selections.set(uri, { version, function: fn });
+    this.emitter.fire(uri);
+  }
+
+  selectionFor(uri: vscode.Uri): SelectionAnalysis | undefined {
+    return this.selections.get(uri.toString());
+  }
+
+  clearSelection(uri?: vscode.Uri): void {
+    if (!uri) {
+      this.selections.clear();
+      this.emitter.fire('');
+      return;
+    }
+    if (this.selections.delete(uri.toString())) {
+      this.emitter.fire(uri.toString());
+    }
+  }
+
   get(uri: vscode.Uri): AnalyzeResponse | undefined {
     return this.byUri.get(uri.toString());
   }
@@ -75,6 +105,7 @@ export class ResultStore {
   clear(uri?: vscode.Uri): void {
     if (uri) this.byUri.delete(uri.toString());
     else this.byUri.clear();
+    this.clearSelection(uri);
     this.clearDeepRuns(uri);
   }
 }

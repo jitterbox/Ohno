@@ -63,6 +63,8 @@ const fn = (name: string, start: number, end: number): FunctionComplexity => ({
   explanation: '',
   patterns: [],
   confidenceReasons: [],
+  approaches: [],
+  selectionHint: '',
   tier: 'fast',
 });
 

@@ -38,6 +38,8 @@ const fn: FunctionComplexity = {
   explanation: 'Linearithmic time',
   patterns: [],
   confidenceReasons: [],
+  approaches: [],
+  selectionHint: '',
   tier: 'fast',
 };
 
@@ -92,6 +94,37 @@ describe('buildPanelModel', () => {
     expect(conf?.label).toBe('Confidence: medium');
     expect(conf?.children[0].label).toContain('Count > k');
     expect(conf?.children[0].italic).toBe(true);
+  });
+
+  it('lists approaches and a selection hint', () => {
+    const model = buildPanelModel(
+      {
+        ...fn,
+        approaches: [
+          {
+            id: 'binary-search',
+            name: 'Binary search',
+            summary: 'Exclusive mid-split recursion',
+            role: 'dominant',
+            timeHint: 'O(log n)',
+          },
+          {
+            id: 'await-opaque',
+            name: 'Awaited work',
+            summary: 'I/O is not the local bound',
+            role: 'nested',
+          },
+        ],
+        selectionHint: 'Select a smaller method for more detail.',
+      },
+      'file:///a.cs',
+      new Set(),
+    );
+    const group = model.summary.find((i) => i.id === 'approaches');
+    expect(group?.label).toBe('Approaches');
+    expect(group?.children[0].label).toBe('Binary search · O(log n)');
+    expect(group?.children[1].description).toBe('nested');
+    expect(group?.children[2].italic).toBe(true);
   });
 
   it('lists deep-analysis changes under a zap node', () => {

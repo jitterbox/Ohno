@@ -23,7 +23,8 @@
           "uri": { "type": "string" },
           "text": { "type": "string" },
           "version": { "type": "integer" },
-          "tier": { "enum": ["fast", "deep"] }
+          "tier": { "enum": ["fast", "deep"] },
+          "selection": { "$ref": "#/definitions/LineRange" }
         }
       },
       "result": { "$ref": "#/definitions/AnalyzeResponse" }
@@ -63,7 +64,7 @@
         "id", "name", "kind", "range", "signatureRange", "time", "space",
         "confidence", "dimensions", "evidence", "warnings",
         "boundingSuggestions", "explanation", "patterns",
-        "confidenceReasons", "tier"
+        "confidenceReasons", "approaches", "selectionHint", "tier"
       ],
       "properties": {
         "id": { "type": "string" },
@@ -95,6 +96,11 @@
           "type": "array",
           "items": { "type": "string" }
         },
+        "approaches": {
+          "type": "array",
+          "items": { "$ref": "#/definitions/AlgorithmApproach" }
+        },
+        "selectionHint": { "type": "string" },
         "tier": { "enum": ["fast", "deep"] }
       }
     },
@@ -118,7 +124,22 @@
       "properties": {
         "id": { "type": "string" },
         "label": { "type": "string" },
-        "reason": { "type": "string" }
+        "reason": { "type": "string" },
+        "effect": { "enum": ["annotate", "unknown", "range"] },
+        "range": { "$ref": "#/definitions/LineRange" }
+      }
+    },
+    "AlgorithmApproach": {
+      "type": "object",
+      "required": ["id", "name", "summary", "role"],
+      "properties": {
+        "id": { "type": "string" },
+        "name": { "type": "string" },
+        "summary": { "type": "string" },
+        "role": {
+          "enum": ["dominant", "nested", "sequential", "alternative"]
+        },
+        "timeHint": { "type": "string" }
       }
     },
     "InputDimension": {

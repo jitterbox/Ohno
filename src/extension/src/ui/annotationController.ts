@@ -14,6 +14,7 @@ import type {
   EvidenceNode,
   FunctionComplexity,
 } from '../analysis/types';
+import { normalizeRange } from './ranges';
 import {
   createDecorationSet,
   disposeDecorationSet,
@@ -35,7 +36,11 @@ type AnalysisOutcome = 'ok' | 'cancelled' | 'error' | 'skipped';
 export class AnnotationController implements vscode.Disposable {
   private decorations: DecorationSet;
   private timer: ReturnType<typeof setTimeout> | undefined;
+  private selectionTimer: ReturnType<typeof setTimeout> | undefined;
   private cancellation: vscode.CancellationTokenSource | undefined;
+  private selectionCancel: vscode.CancellationTokenSource | undefined;
+  private selectionVersion = 0;
+  private lastSelection = '';
   private version = 0;
   private readonly disposable: vscode.Disposable;
 
@@ -52,6 +57,8 @@ export class AnnotationController implements vscode.Disposable {
         this.store.clear(doc.uri);
       }),
       vscode.window.onDidChangeActiveTextEditor(() => this.refresh()),
+      vscode.window.onDidChangeTextEditorSelection(() =>
+        this.scheduleSelection()),
       vscode.workspace.onDidChangeConfiguration((e) => {
         if (e.affectsConfiguration('ohno')) this.refresh();
       }),
@@ -61,7 +68,9 @@ export class AnnotationController implements vscode.Disposable {
 
   dispose(): void {
     this.cancellation?.cancel();
+    this.selectionCancel?.cancel();
     if (this.timer) clearTimeout(this.timer);
+    if (this.selectionTimer) clearTimeout(this.selectionTimer);
     disposeDecorationSet(this.decorations);
     this.disposable.dispose();
   }
@@ -73,6 +82,7 @@ export class AnnotationController implements vscode.Disposable {
       return;
     }
     this.schedule(readConfig());
+    this.scheduleSelection();
   }
 
   async runDeep(uri?: vscode.Uri): Promise<void> {
@@ -121,6 +131,75 @@ export class AnnotationController implements vscode.Disposable {
       // Automatic analysis is always fast; deep runs are on demand only.
       void this.analyze(editor, { ...readConfig(), tier: 'fast' });
     }, config.debounceMs);
+  }
+
+  private scheduleSelection(): void {
+    const editor = vscode.window.activeTextEditor;
+    if (!editor) return;
+    const uri = editor.document.uri;
+    if (editor.selection.isEmpty) {
+      this.lastSelection = '';
+      this.store.clearSelection(uri);
+      return;
+    }
+    const sel = editor.selection;
+    const key = [uri.toString(), editor.document.version,
+      sel.start.line, sel.start.character,
+      sel.end.line, sel.end.character].join(':');
+    if (key === this.lastSelection) return;
+    this.lastSelection = key;
+    if (this.selectionTimer) clearTimeout(this.selectionTimer);
+    const wait = Math.min(readConfig().debounceMs, 200);
+    this.selectionTimer = setTimeout(() => {
+      const current = vscode.window.activeTextEditor;
+      if (!current || current.selection.isEmpty) return;
+      void this.analyzeSelection(current);
+    }, wait);
+  }
+
+  private async analyzeSelection(
+    editor: vscode.TextEditor,
+  ): Promise<void> {
+    if (editor.selection.isEmpty) {
+      this.store.clearSelection(editor.document.uri);
+      return;
+    }
+    const config = readConfig();
+    const doc = editor.document;
+    if (!languageEnabled(doc.languageId, config)) return;
+    const analyzer = this.registry.get(doc.languageId);
+    if (!analyzer) return;
+    this.selectionCancel?.cancel();
+    this.selectionCancel?.dispose();
+    this.selectionCancel = new vscode.CancellationTokenSource();
+    const token = this.selectionCancel.token;
+    const ticket = ++this.selectionVersion;
+    const sel = editor.selection;
+    try {
+      const response = await analyzer.analyze({
+        uri: doc.uri.toString(),
+        text: doc.getText(),
+        version: doc.version,
+        tier: 'fast',
+        selection: normalizeRange(
+          sel.start.line,
+          sel.start.character,
+          sel.end.line,
+          sel.end.character,
+        ),
+      }, token);
+      if (token.isCancellationRequested) return;
+      if (ticket !== this.selectionVersion) return;
+      if (editor.document.version !== response.version) return;
+      const fn = response.functions[0];
+      if (fn) {
+        this.store.setSelection(doc.uri.toString(), doc.version, fn);
+      }
+    } catch {
+      if (!token.isCancellationRequested) {
+        this.output.appendLine('selection analyze failed');
+      }
+    }
   }
 
   private async analyze(

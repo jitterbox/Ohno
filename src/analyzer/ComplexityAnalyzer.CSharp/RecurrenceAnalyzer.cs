@@ -28,38 +28,43 @@ internal static class RecurrenceAnalyzer
     {
         var calls = FindRecursive(method, body).ToArray();
         if (calls.Length == 0) return null;
+        NoteBound(method, body, calls, state);
 
         if (IsBinarySearch(body, calls))
             return Solved(method, state, Cx.Log(Cx.Var("n")),
-                Cx.Log(Cx.Var("n")), "binary-search recursion");
+                Cx.Log(Cx.Var("n")),
+                "binary-search", "binary-search recursion");
 
         if (TryMemoized(body, state, out var states))
             return Solved(method, state, states, Cx.Var("n"),
-                "memoized recursion");
+                "memoized-recursion", "memoized recursion");
 
         if (IsSubsetGeneration(body, calls))
         {
             var n = Cx.Var("n");
             var cost = Cx.Mul(n, Cx.Pow(Cx.Constant(2), n));
-            return Solved(method, state, cost, cost, "subset generation");
+            return Solved(method, state, cost, cost,
+                "subset-generation", "subset generation");
         }
 
         if (TryPermutationOrCombination(
             body, calls, state, out var genTime, out var genSpace))
         {
             return Solved(method, state, genTime, genSpace,
+                "combinatorial-generation",
                 "combinatorial generation");
         }
 
         if (TryGraphWalk(body, state, out var gTime, out var gSpace))
-            return Solved(method, state, gTime, gSpace, "graph traversal");
+            return Solved(method, state, gTime, gSpace,
+                "graph-traversal", "visited graph walk");
 
         if (IsBranchingDecrease(method, calls))
         {
             var n = Cx.Var("n");
             return Solved(
                 method, state, Cx.Pow(Cx.Constant(2), n), n,
-                "branching recursion");
+                "branching-recursion", "branching recursion");
         }
 
         return Classify(method, calls) switch
@@ -106,7 +111,34 @@ internal static class RecurrenceAnalyzer
             if (op is IConditionalOperation) return true;
         }
 
-        return false;
+        return IsElseReturn(call);
+    }
+
+    private static bool IsElseReturn(IInvocationOperation call)
+    {
+        var ret = AncestorReturn(call);
+        if (ret?.ReturnedValue is null) return false;
+        if (SizeResolver.Unwrap(ret.ReturnedValue) != call) return false;
+        if (ret.Parent is not IBlockOperation block) return false;
+        var index = -1;
+        for (var i = 0; i < block.Operations.Length; i++)
+        {
+            if (block.Operations[i] == ret) index = i;
+        }
+
+        if (index <= 0) return false;
+        return block.Operations[index - 1] is IConditionalOperation prior
+            && IsReturn(prior.WhenTrue);
+    }
+
+    private static IReturnOperation? AncestorReturn(IOperation operation)
+    {
+        for (var op = operation; op is not null; op = op.Parent)
+        {
+            if (op is IReturnOperation ret) return ret;
+        }
+
+        return null;
     }
 
     private static bool TryMemoized(
@@ -361,7 +393,9 @@ internal static class RecurrenceAnalyzer
     {
         var n = Cx.Var("n");
         return Solved(
-            method, state, n, n, $"{method.Name}(n-1) linear recurrence");
+            method, state, n, n,
+            "linear-recurrence",
+            $"{method.Name}(n-1) linear recurrence");
     }
 
     private static ComposedCost DivideAndConquer(
@@ -370,6 +404,7 @@ internal static class RecurrenceAnalyzer
         var nLogN = Cx.Mul(Cx.Var("n"), Cx.Log(Cx.Var("n")));
         return Solved(
             method, state, nLogN, Cx.Var("n"),
+            "divide-and-conquer",
             $"{method.Name}: T(n)=2T(n/2)+O(n)");
     }
 
@@ -378,8 +413,11 @@ internal static class RecurrenceAnalyzer
         AnalysisState state,
         ComplexityExpression time,
         ComplexityExpression space,
+        string id,
         string label)
     {
+        state.RecurrenceId = id;
+        state.RecurrenceLabel = label;
         state.Note(
             AnalysisConfidence.Medium,
             "Recurrence classified as " + label
@@ -395,6 +433,79 @@ internal static class RecurrenceAnalyzer
                 time,
                 null),
         };
+    }
+
+    private static void NoteBound(
+        IMethodSymbol method,
+        IOperation body,
+        IInvocationOperation[] calls,
+        AnalysisState state)
+    {
+        var decreased = DecreasedNames(calls);
+        foreach (var cond in Walk(body).OfType<IConditionalOperation>())
+        {
+            if (!IsEarlyExit(cond)) continue;
+            var name = CapName(cond.Condition, decreased);
+            if (name is null) continue;
+            state.RecurrenceBound = name;
+            state.Suggestions.Add(new BoundingSuggestion(
+                "A depth or remaining-work cap may bind this recursion.",
+                "treat " + name + " as the size of the recursion tree",
+                Cx.Pow(Cx.Constant(2), Cx.Var("k")),
+                Cx.Var("k")));
+            return;
+        }
+    }
+
+    private static HashSet<string> DecreasedNames(
+        IInvocationOperation[] calls)
+    {
+        var names = new HashSet<string>(StringComparer.Ordinal);
+        foreach (var call in calls)
+        {
+            foreach (var arg in call.Arguments)
+            {
+                var value = SizeResolver.Unwrap(arg.Value);
+                if (ClassifyArg(value) == ArgKind.Other) continue;
+                if (value is IBinaryOperation bin
+                    && SizeResolver.Unwrap(bin.LeftOperand)
+                        is IParameterReferenceOperation p)
+                {
+                    names.Add(p.Parameter.Name);
+                }
+            }
+        }
+
+        return names;
+    }
+
+    private static bool IsEarlyExit(IConditionalOperation cond)
+    {
+        return IsReturn(cond.WhenTrue) || IsReturn(cond.WhenFalse);
+    }
+
+    private static bool IsReturn(IOperation? operation)
+    {
+        if (operation is null) return false;
+        if (operation is IReturnOperation) return true;
+        return operation is IBlockOperation block
+            && block.Operations.Length > 0
+            && block.Operations[0] is IReturnOperation;
+    }
+
+    private static string? CapName(
+        IOperation? condition, HashSet<string> decreased)
+    {
+        if (condition is null) return null;
+        foreach (var op in Walk(condition))
+        {
+            if (op is not IParameterReferenceOperation p) continue;
+            if (p.Type is null || !IsIntegral(p.Type)) continue;
+            if (decreased.Contains(p.Parameter.Name)) continue;
+            return p.Parameter.Name;
+        }
+
+        return null;
     }
 
     private static ComposedCost Unresolved(IMethodSymbol method)

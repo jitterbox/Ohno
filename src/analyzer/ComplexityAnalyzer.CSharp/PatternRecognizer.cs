@@ -16,9 +16,12 @@ namespace ComplexityAnalyzer.CSharp;
 /// and <c>dynamic</c> invocations are kind checks.
 /// Edge cases: Collatz-like loops only fire when the condition is
 /// equality and the body contains <c>*</c> or <c>/</c>; countdown
-/// requires a local (not a parameter) of an integral or
-/// <c>BigInteger</c> type; <c>IQueryable</c> execution is delegated
-/// to a provider and is never given a polynomial.
+/// accepts a local or parameter of an integral or
+/// <c>BigInteger</c> type; <c>IQueryable</c> / EF execution is
+/// delegated to a provider and is never given a polynomial;
+/// <c>await foreach</c> stays opaque even when a collection bound
+/// exists, while a lone <c>await</c> beside a resolved loop is
+/// annotated rather than wiping the bound.
 /// </remarks>
 internal static class PatternRecognizer
 {
@@ -71,7 +74,8 @@ internal static class PatternRecognizer
             ? Unknown(
                 "dynamic-dispatch",
                 "Dynamic dispatch",
-                "the invocation target is selected by the runtime binder")
+                "the invocation target is selected by the runtime binder",
+                operation)
             : null;
 
     private static RecognizedPattern? Reflection(IOperation operation)
@@ -87,7 +91,8 @@ internal static class PatternRecognizer
         return Unknown(
             "reflection-dispatch",
             "Reflection dispatch",
-            "the target method is selected by name at runtime");
+            "the target method is selected by name at runtime",
+            operation);
     }
 
     private static RecognizedPattern? Interface(IOperation operation)
@@ -101,7 +106,8 @@ internal static class PatternRecognizer
         return Unknown(
             "interface-dispatch",
             "Interface or abstract dispatch",
-            "the concrete implementation is not fixed at this call site");
+            "the concrete implementation is not fixed at this call site",
+            operation);
     }
 
     private static RecognizedPattern? Delegate(IOperation operation)
@@ -112,7 +118,8 @@ internal static class PatternRecognizer
         return Unknown(
             "delegate-invoke",
             "Delegate invocation",
-            "the delegate body and invocation-list length are not known here");
+            "the delegate body and invocation-list length are not known here",
+            operation);
     }
 
     private static RecognizedPattern? OpaqueCall(IOperation operation)
@@ -123,20 +130,25 @@ internal static class PatternRecognizer
         {
             "System.Text.RegularExpressions.Regex" =>
                 Unknown("regex", "Regular expression",
-                    "matching cost depends on the pattern and can backtrack"),
+                    "matching cost depends on the pattern and can backtrack",
+                    operation),
             "System.IO.Stream" =>
                 Unknown("stream-io", "Stream I/O",
-                    "the concrete stream may be memory, file, or network"),
+                    "the concrete stream may be memory, file, or network",
+                    operation),
             "System.Threading.Tasks.Parallel" =>
                 Unknown("parallel-loop", "Parallel loop",
-                    "elapsed time depends on scheduling and the callback"),
+                    "elapsed time depends on scheduling and the callback",
+                    operation),
             "System.Linq.Expressions.LambdaExpression" or
             "System.Linq.Expressions.Expression`1" =>
                 Unknown("expression-compile", "Compiled expression tree",
-                    "the compiled body is data, not a fixed method"),
+                    "the compiled body is data, not a fixed method",
+                    operation),
             "System.Threading.Thread" =>
                 Unknown("thread-block", "Thread blocking",
-                    "wait time is controlled by the runtime and other threads"),
+                    "wait time is controlled by the runtime and other threads",
+                    operation),
             _ => null,
         };
     }
@@ -153,8 +165,10 @@ internal static class PatternRecognizer
 
         return Unknown(
             "queryable",
-            "IQueryable provider",
-            "execution is delegated to a runtime query provider");
+            "IQueryable / EF provider",
+            "execution is delegated to a query provider "
+            + "(EF, LINQ to SQL, or another IQueryable engine)",
+            operation);
     }
 
     private static RecognizedPattern? Await(IOperation operation)
@@ -164,16 +178,18 @@ internal static class PatternRecognizer
             return Unknown(
                 "await-opaque",
                 "Awaited work",
-                "the awaited operation's cost is not the local continuation");
+                "the awaited operation's cost is not the local continuation",
+                operation);
         }
 
         if (operation is IForEachLoopOperation loop
             && HasAsyncEnumerator(loop.Collection.Type))
         {
             return Unknown(
-                "await-opaque",
-                "Awaited work",
-                "the async sequence's MoveNextAsync cost is not local");
+                "await-foreach",
+                "Awaited sequence",
+                "the async sequence's MoveNextAsync cost is not local",
+                operation);
         }
 
         return null;
@@ -188,9 +204,10 @@ internal static class PatternRecognizer
         if (type is not "System.Linq.Enumerable") return null;
         return Annotate(
             "deferred-linq",
-            "Deferred LINQ",
-            "the query is built in constant time; "
-            + "cost is paid when enumerated");
+            "Deferred LINQ (in-memory)",
+            "System.Linq.Enumerable builds a query in constant time; "
+            + "cost is paid when enumerated. This is not EF / IQueryable",
+            operation);
     }
 
     private static RecognizedPattern? Lock(IOperation operation) =>
@@ -198,7 +215,8 @@ internal static class PatternRecognizer
             ? Annotate(
                 "lock-wait",
                 "Lock",
-                "local work is constant but wait time depends on other threads")
+                "local work is constant but wait time depends on other threads",
+                operation)
             : null;
 
     private static RecognizedPattern? Yield(IOperation operation) =>
@@ -206,7 +224,8 @@ internal static class PatternRecognizer
             ? Annotate(
                 "iterator-yield",
                 "Iterator",
-                "cost depends on how many elements the caller consumes")
+                "cost depends on how many elements the caller consumes",
+                operation)
             : null;
 
     private static RecognizedPattern? StringConcat(
@@ -225,7 +244,8 @@ internal static class PatternRecognizer
             ? Annotate(
                 "string-concat-loop",
                 "Repeated string concatenation",
-                "each concatenation copies a growing string")
+                "each concatenation copies a growing string",
+                operation)
             : null;
     }
 
@@ -246,7 +266,8 @@ internal static class PatternRecognizer
         return Unknown(
             "unproven-loop",
             "Unproven loop bound",
-            "the loop variable is not a proven decreasing size metric");
+            "the loop variable is not a proven decreasing size metric",
+            operation);
     }
 
     private static RecognizedPattern? NullWalk(IOperation operation)
@@ -259,12 +280,12 @@ internal static class PatternRecognizer
                 OperatorKind: BinaryOperatorKind.ConditionalAnd
                     or BinaryOperatorKind.ConditionalOr
             };
-        return pattern
-            ? Annotate(
-                "null-terminated-walk",
-                "Null-terminated walk",
-                "the bound assumes a finite acyclic chain")
-            : null;
+        if (!pattern || !WalksNext(loop)) return null;
+        return Annotate(
+            "null-terminated-walk",
+            "Null-terminated walk",
+            "the bound assumes a finite acyclic chain",
+            operation);
     }
 
     private static RecognizedPattern? Countdown(IOperation operation)
@@ -284,7 +305,8 @@ internal static class PatternRecognizer
             ? Annotate(
                 "numeric-countdown",
                 "Numeric countdown",
-                "the bound is the numeric value, not its encoded size")
+                "the bound is the numeric value, not its encoded size",
+                operation)
             : null;
     }
 
@@ -301,7 +323,8 @@ internal static class PatternRecognizer
             "a hit is constant time; a miss repeats the full computation",
             PatternEffect.Range,
             "Worst case matches the uncached work; "
-            + "a cache hit is constant time");
+            + "a cache hit is constant time",
+            RoslynSpans.Of(operation));
     }
 
     private static RecognizedPattern? UnboundedWorklist(
@@ -318,7 +341,8 @@ internal static class PatternRecognizer
         return Unknown(
             "unbounded-worklist",
             "Unbounded worklist",
-            "the queue is refilled without a visit mark and may not halt");
+            "the queue is refilled without a visit mark and may not halt",
+            operation);
     }
 
     private static bool IsCountCondition(
@@ -433,16 +457,21 @@ internal static class PatternRecognizer
             "the number of recursive calls depends on the input values",
             PatternEffect.Range,
             "Best case is linear in remaining elements; "
-            + "worst case is exponential");
+            + "worst case is exponential",
+            RoslynSpans.Of(operation));
     }
 
     private static RecognizedPattern Unknown(
-        string id, string label, string reason) =>
-        new(id, label, reason, PatternEffect.Unknown);
+        string id, string label, string reason,
+        IOperation? operation = null) =>
+        new(id, label, reason, PatternEffect.Unknown, "",
+            RoslynSpans.Of(operation));
 
     private static RecognizedPattern Annotate(
-        string id, string label, string reason) =>
-        new(id, label, reason, PatternEffect.Annotate);
+        string id, string label, string reason,
+        IOperation? operation = null) =>
+        new(id, label, reason, PatternEffect.Annotate, "",
+            RoslynSpans.Of(operation));
 
     private static int CountRecursive(
         IMethodSymbol method, IOperation body) =>
@@ -469,8 +498,12 @@ internal static class PatternRecognizer
         var cond = SizeResolver.Unwrap(loop.Condition);
         if (cond is not IBinaryOperation binary) return false;
         var left = SizeResolver.Unwrap(binary.LeftOperand);
-        if (left is not ILocalReferenceOperation local) return false;
-        var type = local.Type;
+        var type = left switch
+        {
+            ILocalReferenceOperation local => local.Type,
+            IParameterReferenceOperation p => p.Type,
+            _ => null,
+        };
         if (type is null) return false;
         return type.SpecialType is SpecialType.System_Int32
             or SpecialType.System_Int64
@@ -487,6 +520,14 @@ internal static class PatternRecognizer
         var ns = type.ContainingNamespace?.ToDisplayString() ?? "";
         return ns.StartsWith("System.Collections", StringComparison.Ordinal)
             || ns.StartsWith("System.Linq", StringComparison.Ordinal);
+    }
+
+    private static bool WalksNext(IWhileLoopOperation loop)
+    {
+        return WalkAll(loop.Body).OfType<ISimpleAssignmentOperation>()
+            .Any(a => SizeResolver.Unwrap(a.Value)
+                is IFieldReferenceOperation
+                    or IPropertyReferenceOperation);
     }
 
     private static IEnumerable<IOperation> WalkAll(IOperation root)

@@ -73,7 +73,8 @@ export function activate(context: vscode.ExtensionContext): void {
     vscode.commands.registerCommand('ohno.copyComplexity', async () => {
       const editor = vscode.window.activeTextEditor;
       if (!editor) return;
-      const fn = store.functionAt(editor.document.uri, editor.selection.active);
+      const fn = store.selectionFor(editor.document.uri)?.function
+        ?? store.functionAt(editor.document.uri, editor.selection.active);
       if (!fn) return;
       await vscode.env.clipboard.writeText(`${fn.time} · ${fn.space}`);
     }),

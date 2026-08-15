@@ -98,6 +98,8 @@ function collectFunctions(
         explanation: phraseFor(cost.time),
         patterns: [],
         confidenceReasons: [],
+        approaches: [],
+        selectionHint: '',
         tier: 'fast',
       });
     }

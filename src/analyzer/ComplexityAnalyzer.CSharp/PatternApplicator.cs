@@ -47,14 +47,11 @@ internal static class PatternApplicator
         id is "dynamic-dispatch"
             or "reflection-dispatch"
             or "regex"
-            or "stream-io"
-            or "queryable"
             or "expression-compile"
             or "parallel-loop"
-            or "await-opaque"
             or "unproven-loop"
-            or "thread-block"
-            or "unbounded-worklist";
+            or "unbounded-worklist"
+            or "await-foreach";
 
     private static bool ContainsCall(ComplexityExpression expression) =>
         expression is FunctionCostExpression

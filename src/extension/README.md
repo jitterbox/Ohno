@@ -5,8 +5,8 @@
 </p>
 
 Inline **Big-O time and auxiliary-space** estimates for functions in
-the focused editor, with confidence, recognized patterns, and a
-derivation tree.
+the focused editor, with confidence, named approaches, recognized
+patterns, and a derivation tree.
 
 C# is the only selectable language (bundled Roslyn server).
 
@@ -14,14 +14,22 @@ This is **not** Visual Studio cyclomatic complexity
 ([CA1502](https://learn.microsoft.com/dotnet/fundamentals/code-analysis/quality-rules/ca1502)).
 Ohno estimates how work and peak extra memory grow with input size.
 
+The Complexity view lists up to three **approaches** (dominant,
+nested, sequential, or alternative). Select a statement or loop to
+re-analyze that span; a hint asks you to narrow further when more
+than one approach remains. Clear the selection to return to the
+whole function.
+
 ## Commands
 
 - **Ohno: Run Deep Analysis** — wait for the project graph and
   re-analyze (fast already uses that graph when it is ready)
 - **Ohno: Show Complexity Derivation** — focus the Complexity view
+- **Ohno: Focus Complexity Panel** — open the activity-bar view
 - **Ohno: Toggle Complexity Annotations** — hide or show end-of-line
   decorations
-- **Ohno: Copy Complexity Summary**
+- **Ohno: Copy Complexity Summary** — copy the selection result if
+  one is active, otherwise the function at the caret
 
 ## Settings
 

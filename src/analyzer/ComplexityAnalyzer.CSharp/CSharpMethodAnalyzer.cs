@@ -38,35 +38,29 @@ public sealed partial class CSharpMethodAnalyzer
         var state = new AnalysisState(tier) { Catalog = _catalog };
         DimensionInferrer.Infer(method, state);
         var cost = AnalyzeSymbol(method, model, state);
-        var time = ComplexitySimplifier.Simplify(cost.Time);
-        var space = ComplexitySimplifier.Simplify(
-            CostComposer.Peak(state.Retained.Append(cost.Space)));
-        var confidence = Downgrade(cost, time);
-        var evidence = EvidencePruner.Prune(cost.Evidence);
         var body = TryGetBody(method, model);
-        var patterns = PatternRecognizer.Recognize(method, body);
-        time = PatternApplicator.ApplyTime(time, patterns);
-        space = PatternApplicator.ApplySpace(space, patterns);
-        var assessed = ConfidenceAssessor.Assess(
-            confidence, patterns, state, time);
-        confidence = assessed.Confidence;
-        var explanation = ExplanationFormatter.Format(time, patterns);
-        var warnings = MergeWarnings(cost, state, patterns);
-        var suggestions = cost.Suggestions
-            .Concat(state.Suggestions)
-            .ToArray();
+        return Complete(
+            state, cost, method, body is null ? [] : [body]);
+    }
 
-        return new ComplexityResult(
-            time,
-            space,
-            confidence,
-            state.Dimensions,
-            evidence,
-            warnings,
-            suggestions,
-            patterns,
-            explanation,
-            assessed.Reasons);
+    public ComplexityResult AnalyzeSelection(
+        IMethodSymbol method,
+        SemanticModel model,
+        LineSpan span,
+        AnalysisTier tier)
+    {
+        var state = new AnalysisState(tier) { Catalog = _catalog };
+        DimensionInferrer.Infer(method, state);
+        var body = TryGetBody(method, model);
+        var parts = SelectionFragment.Extract(
+            body, span, model.SyntaxTree);
+        if (parts.Count == 0)
+            return EmptySelection(span);
+        state.IsSelection = true;
+        state.Analyzing.Add(method);
+        var cost = AnalyzeParts(method, model, state, parts);
+        state.Analyzing.Remove(method);
+        return Complete(state, cost, method, parts);
     }
 
     internal ComposedCost AnalyzeSymbol(
@@ -112,6 +106,96 @@ public sealed partial class CSharpMethodAnalyzer
 
         CardinalityAnalyzer.Analyze(body, model, state);
         return Analyze(body, state);
+    }
+
+    private ComposedCost AnalyzeParts(
+        IMethodSymbol method,
+        SemanticModel model,
+        AnalysisState state,
+        IReadOnlyList<IOperation> parts)
+    {
+        var root = MergeRoot(parts);
+        var rec = RecurrenceAnalyzer.TrySolve(method, root, state);
+        if (rec is not null) return rec;
+        foreach (var part in parts)
+            CardinalityAnalyzer.Analyze(part, model, state);
+        var costs = parts.Select(p => Analyze(p, state)).ToArray();
+        return CostComposer.Sequential(costs, RoslynSpans.Of(parts[0]));
+    }
+
+    private static IOperation MergeRoot(IReadOnlyList<IOperation> parts) =>
+        parts.Count == 1 ? parts[0] : MergeUntil(parts, 16);
+
+    private static IOperation MergeUntil(
+        IReadOnlyList<IOperation> parts, int hops)
+    {
+        if (parts.Count == 1) return parts[0];
+        if (hops <= 0) return parts[0];
+        var parent = parts[0].Parent;
+        if (parent is null) return parts[0];
+        if (parent.ChildOperations.Count() > 64) return parts[0];
+        return MergeUntil([parent], hops - 1);
+    }
+
+    private ComplexityResult Complete(
+        AnalysisState state,
+        ComposedCost cost,
+        IMethodSymbol method,
+        IReadOnlyList<IOperation> parts)
+    {
+        var time = ComplexitySimplifier.Simplify(cost.Time);
+        var space = ComplexitySimplifier.Simplify(
+            CostComposer.Peak(state.Retained.Append(cost.Space)));
+        var confidence = Downgrade(cost, time);
+        var evidence = EvidencePruner.Prune(cost.Evidence);
+        var raw = parts
+            .SelectMany(p => PatternRecognizer.Recognize(method, p))
+            .DistinctBy(p => p.Id)
+            .ToArray();
+        var patterns = PatternRefiner.Refine(raw, time, state);
+        time = PatternApplicator.ApplyTime(time, patterns);
+        space = PatternApplicator.ApplySpace(space, patterns);
+        var assessed = ConfidenceAssessor.Assess(
+            confidence, patterns, state, time);
+        var explanation = ExplanationFormatter.Format(time, patterns);
+        var (approaches, hint) = ApproachSummarizer.Summarize(
+            patterns, evidence, time, state.IsSelection);
+        return new ComplexityResult(
+            time,
+            space,
+            assessed.Confidence,
+            state.Dimensions,
+            evidence,
+            MergeWarnings(cost, state, patterns),
+            cost.Suggestions.Concat(state.Suggestions).ToArray(),
+            patterns,
+            explanation,
+            assessed.Reasons,
+            approaches,
+            hint);
+    }
+
+    private static ComplexityResult EmptySelection(LineSpan span)
+    {
+        var time = Cx.Unknown("selection is not a statement");
+        var evidence = ComplexityEvidence.Leaf(
+            "selection", "empty selection", time, span);
+        var warning = new AnalysisWarning(
+            "Select a statement or loop inside a method.", span);
+        return new ComplexityResult(
+            time,
+            Cx.One,
+            AnalysisConfidence.Unknown,
+            [],
+            evidence,
+            [warning],
+            [],
+            [],
+            ExplanationFormatter.UnknownText(
+                "the selection is not a statement"),
+            ["The selection is not a statement inside a method."],
+            [],
+            "Select a statement or loop inside a method.");
     }
 
     private static IOperation? TryGetBody(

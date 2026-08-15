@@ -22,7 +22,7 @@ public sealed class AnalyzerService
 
     [JsonRpcMethod("initialize")]
     public InitializeResult Initialize() =>
-        new("Ohno.ComplexityAnalyzer", "0.1.1");
+        new("Ohno.ComplexityAnalyzer", "0.1.2");
 
     [JsonRpcMethod(
         "ohno/setSolutionContext",
@@ -107,15 +107,12 @@ public sealed class AnalyzerService
         if (lookup is null)
         {
             return await Task.Run(
-                () => _file.Analyze(
-                    request.Text, AnalysisTier.Fast, token),
+                () => RunFile(request, null, AnalysisTier.Fast, token),
                 token).ConfigureAwait(false);
         }
 
         return await Task.Run(
-            () => _file.Analyze(
-                lookup.Model, lookup.Tree,
-                AnalysisTier.Fast, token),
+            () => RunFile(request, lookup, AnalysisTier.Fast, token),
             token).ConfigureAwait(false);
     }
 
@@ -132,9 +129,8 @@ public sealed class AnalyzerService
             if (lookup is not null)
             {
                 return await Task.Run(
-                    () => _file.Analyze(
-                        lookup.Model, lookup.Tree,
-                        AnalysisTier.Deep, token),
+                    () => RunFile(
+                        request, lookup, AnalysisTier.Deep, token),
                     token).ConfigureAwait(false);
             }
         }
@@ -159,16 +155,41 @@ public sealed class AnalyzerService
         }
 
         return await Task.Run(
-            () => _file.Analyze(
-                request.Text, AnalysisTier.Deep, token),
+            () => RunFile(request, null, AnalysisTier.Deep, token),
             token).ConfigureAwait(false);
     }
+
+    private FileAnalysis RunFile(
+        AnalyzeRequest request,
+        SemanticModelLookup? lookup,
+        AnalysisTier tier,
+        CancellationToken token)
+    {
+        if (request.Selection is { } sel)
+        {
+            var span = Unmap(sel);
+            if (lookup is null)
+                return _file.AnalyzeSelection(
+                    request.Text, span, tier, token);
+            return _file.AnalyzeSelection(
+                lookup.Model, lookup.Tree, span, tier, token);
+        }
+
+        if (lookup is null)
+            return _file.Analyze(request.Text, tier, token);
+        return _file.Analyze(
+            lookup.Model, lookup.Tree, tier, token);
+    }
+
+    private static LineSpan Unmap(RangeDto range) =>
+        new(range.StartLine, range.StartCharacter,
+            range.EndLine, range.EndCharacter);
 
     private FileAnalysis Fallback(
         AnalyzeRequest request, string reason, CancellationToken token)
     {
-        var analysis = _file.Analyze(
-            request.Text, AnalysisTier.Deep, token);
+        var analysis = RunFile(
+            request, null, AnalysisTier.Deep, token);
         var warning = new AnalysisWarning(
             "Deep analysis unavailable; used ad-hoc compilation. "
             + reason);
@@ -237,8 +258,12 @@ public sealed class AnalyzerService
     {
         var result = function.Result;
         return new FunctionDto(
-            function.Symbol.ToDisplayString(),
-            DisplayName(function.Symbol),
+            function.IsSelection
+                ? function.Symbol.ToDisplayString() + "#selection"
+                : function.Symbol.ToDisplayString(),
+            function.IsSelection
+                ? DisplayName(function.Symbol) + " (selection)"
+                : DisplayName(function.Symbol),
             KindOf(function.Symbol.MethodKind),
             MapSpan(function.Range),
             MapSpan(function.SignatureRange),
@@ -254,11 +279,28 @@ public sealed class AnalyzerService
                 .ToArray(),
             result.BoundingSuggestions.Select(MapSuggestion).ToArray(),
             result.Explanation,
-            result.Patterns.Select(p =>
-                new PatternDto(p.Id, p.Label, p.Reason)).ToArray(),
+            result.Patterns.Select(MapPattern).ToArray(),
             result.ConfidenceReasons.ToArray(),
+            result.Approaches.Select(MapApproach).ToArray(),
+            result.SelectionHint,
             tier == AnalysisTier.Deep ? "deep" : "fast");
     }
+
+    private static PatternDto MapPattern(RecognizedPattern pattern) =>
+        new(
+            pattern.Id,
+            pattern.Label,
+            pattern.Reason,
+            pattern.Effect.ToString().ToLowerInvariant(),
+            pattern.Range is null ? null : MapSpan(pattern.Range));
+
+    private static ApproachDto MapApproach(AlgorithmApproach approach) =>
+        new(
+            approach.Id,
+            approach.Name,
+            approach.Summary,
+            approach.Role,
+            approach.TimeHint);
 
     private static EvidenceDto MapEvidence(ComplexityEvidence evidence) =>
         new(

@@ -1,5 +1,8 @@
 using System.IO.Pipes;
+using ComplexityAnalyzer.Core;
+using ComplexityAnalyzer.CSharp;
 using ComplexityAnalyzer.Server;
+using Microsoft.CodeAnalysis.CSharp.Syntax;
 using StreamJsonRpc;
 using Xunit;
 
@@ -75,6 +78,84 @@ public class ServerProtocolTests
         Assert.Contains(fn.Dimensions, d => d.Variable == "n");
         Assert.Contains(fn.Dimensions, d => d.Variable == "k");
         Assert.NotEmpty(fn.Evidence.Children);
+    }
+
+    [Fact]
+    public async Task Analyze_DeferredLinq_ReturnsApproaches()
+    {
+        var service = new AnalyzerService();
+        var response = await service.Analyze(new AnalyzeRequest(
+            "file:///tmp/Linq.cs",
+            """
+            using System.Collections.Generic;
+            using System.Linq;
+            public static class S
+            {
+                public static IEnumerable<int> Positive(
+                    IEnumerable<int> source)
+                {
+                    return source.Where(x => x > 0);
+                }
+            }
+            """,
+            1,
+            "fast"));
+
+        var fn = response.Functions.Single(f => f.Name == "Positive");
+        Assert.Contains(fn.Approaches, a => a.Id == "deferred-linq");
+        Assert.Contains(fn.Approaches, a => a.Role == "alternative");
+        Assert.False(string.IsNullOrWhiteSpace(fn.SelectionHint));
+    }
+
+    [Fact]
+    public async Task Analyze_Selection_ReturnsSyntheticMethod()
+    {
+        var text = """
+            using System;
+            public static class S
+            {
+                public static int Nested(int[] a, int[] b)
+                {
+                    var sum = 0;
+                    foreach (var x in a)
+                        foreach (var y in b)
+                            sum += x * y;
+                    return sum;
+                }
+            }
+            """;
+        var inner = SelectionSpan(text);
+        var service = new AnalyzerService();
+        var response = await service.Analyze(new AnalyzeRequest(
+            "file:///tmp/Sel.cs",
+            text,
+            1,
+            "fast",
+            new RangeDto(
+                inner.StartLine,
+                inner.StartCharacter,
+                inner.EndLine,
+                inner.EndCharacter)));
+
+        var fn = Assert.Single(response.Functions);
+        Assert.EndsWith("(selection)", fn.Name);
+        Assert.Equal("O(m)", fn.Time);
+    }
+
+    private static LineSpan SelectionSpan(string source)
+    {
+        var tree = CompilationFactory.SourceTree(
+            CompilationFactory.Create(source, "Sel"));
+        var node = tree.GetRoot()
+            .DescendantNodes()
+            .OfType<ForEachStatementSyntax>()
+            .Last();
+        var loc = node.GetLocation().GetLineSpan();
+        return new LineSpan(
+            loc.StartLinePosition.Line,
+            loc.StartLinePosition.Character,
+            loc.EndLinePosition.Line,
+            loc.EndLinePosition.Character);
     }
 
     [Fact]

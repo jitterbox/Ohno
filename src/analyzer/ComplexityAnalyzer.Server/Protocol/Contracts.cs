@@ -8,7 +8,8 @@ public sealed record AnalyzeRequest(
     string Uri,
     string Text,
     int Version,
-    string Tier);
+    string Tier,
+    RangeDto? Selection = null);
 
 public sealed record SetSolutionContextRequest(string SolutionPath);
 
@@ -34,12 +35,23 @@ public sealed record FunctionDto(
     string Explanation,
     PatternDto[] Patterns,
     string[] ConfidenceReasons,
+    ApproachDto[] Approaches,
+    string SelectionHint,
     string Tier);
 
 public sealed record PatternDto(
     string Id,
     string Label,
-    string Reason);
+    string Reason,
+    string? Effect,
+    RangeDto? Range);
+
+public sealed record ApproachDto(
+    string Id,
+    string Name,
+    string Summary,
+    string Role,
+    string TimeHint);
 
 public sealed record EvidenceDto(
     string Kind,

@@ -87,7 +87,7 @@ public class EdgeCaseTortureTests
         [InlineData("CollatzSteps", "unproven-loop")]
         [InlineData("QueryProviderDependent", "queryable")]
         [InlineData("AwaitOpaqueWork", "await-opaque")]
-        [InlineData("ConsumeAsyncStream", "await-opaque")]
+        [InlineData("ConsumeAsyncStream", "await-foreach")]
         [InlineData("BfsNoVisited", "unbounded-worklist")]
     public void InconclusiveCases_AreUnknown(string name, string patternId)
     {

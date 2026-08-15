@@ -70,6 +70,14 @@ internal sealed class AnalysisState
 
     public ComplexityExpression? FrontierBound { get; set; }
 
+    public string? RecurrenceId { get; set; }
+
+    public string? RecurrenceLabel { get; set; }
+
+    public string? RecurrenceBound { get; set; }
+
+    public bool IsSelection { get; set; }
+
     public void Note(AnalysisConfidence cap, string reason)
     {
         if (Notes.Any(n => n.Reason == reason)) return;

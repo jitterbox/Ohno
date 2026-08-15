@@ -73,7 +73,19 @@ public sealed record RecognizedPattern(
     string Label,
     string Reason,
     PatternEffect Effect,
-    string RangeExplanation = "");
+    string RangeExplanation = "",
+    LineSpan? Range = null);
+
+/// <summary>
+/// A named algorithm or reading of the same function. At most a few
+/// are returned; the headline bound is the dominant one.
+/// </summary>
+public sealed record AlgorithmApproach(
+    string Id,
+    string Name,
+    string Summary,
+    string Role,
+    string TimeHint = "");
 
 /// <summary>How a recognized pattern changes the reported result.</summary>
 public enum PatternEffect
@@ -99,4 +111,6 @@ public sealed record ComplexityResult(
     IReadOnlyList<BoundingSuggestion> BoundingSuggestions,
     IReadOnlyList<RecognizedPattern> Patterns,
     string Explanation,
-    IReadOnlyList<string> ConfidenceReasons);
+    IReadOnlyList<string> ConfidenceReasons,
+    IReadOnlyList<AlgorithmApproach> Approaches,
+    string SelectionHint = "");

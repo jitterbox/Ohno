@@ -109,7 +109,7 @@ classifies a handful of source idioms:
 |---|---|---|
 | `T(n)=T(n-1)+O(1)` | O(n) | O(n) stack |
 | `T(n)=2T(n/2)+O(n)` | O(n log n) | O(n) |
-| Exclusive mid-split | O(log n) | O(log n) |
+| Exclusive mid-split (`?:` or `if` / trailing `return`) | O(log n) | O(log n) |
 | Sequential `n-1` and `n-2` | O(2^n) | O(n) |
 | 2D memo table write | size of table | table (+ stack) |
 | Two `index+1` calls + copy | O(n 2^n) | O(n 2^n) |
@@ -120,14 +120,34 @@ classifies a handful of source idioms:
 Local-function **declarations** are not walked as executable
 statements (`ILocalFunctionOperation`). Cost is paid at the call.
 Otherwise subset/permutation/DFS bodies would be counted twice.
+1D memo tables and named algorithms (Dijkstra, Kahn, two-pointer)
+are not first-class recurrence ids; those appear only if the
+walk/catalog already produces the bound.
 
 ### 2.5 Patterns and honesty
 
 `PatternRecognizer` names hazards that do not require solving math:
 `dynamic`, reflection, interface dispatch, regex, streams, parallel,
-`IQueryable`, expression compile, await / `await foreach`, unproven
-loops, null-terminated walks, numeric countdown, locks, yield,
-deferred LINQ, cache hit/miss, data-dependent recursion.
+`IQueryable` / EF, expression compile, await / `await foreach`,
+unproven loops, null-terminated walks, numeric countdown, locks,
+yield, deferred in-memory LINQ, cache hit/miss, data-dependent
+recursion.
+
+`RecurrenceAnalyzer` classifications (binary search, memo, subset /
+perm generation, visited graph walk, linear / D&C / branching
+recursion) are merged into the same list. A second integral
+parameter that is not decreased in the recursive calls is a
+**bounded recursion** alternative, not a rewrite of the headline.
+
+`PatternRefiner` then:
+
+- drops `data-dependent-recursion` when a recurrence already solved
+- **softens** incidental opacity (`await`, `IQueryable`, stream,
+  interface, delegate, thread wait) to Annotate when a structural
+  loop or recurrence bound exists — the local bound is kept
+- leaves **hard** opacity (dynamic, reflection, regex, expression
+  compile, unproven loop, unbounded worklist, `Parallel`,
+  `await foreach`) as a wipe
 
 Effects:
 
@@ -137,10 +157,42 @@ Effects:
   (cache, branching recursion).
 - **Annotate** — keep the bound; state the assumption.
 
+`ApproachSummarizer` returns at most three readings (`dominant`,
+`nested`, `sequential`, `alternative`) plus a hint to select a
+smaller region when more than one applies. Selection-scoped
+analysis is described in 2.6. Deferred LINQ is not EF;
+EF/`IQueryable` is a
+separate dominant + “if the provider scans” alternative. Nested
+or sequential patterns are listed, not flattened to the first
+opaque id.
+
 `O(n C(Process))` is kept: that *is* a stated bound. A bare
 `external.Run()` becomes Unknown.
 
-### 2.6 Confidence
+### 2.6 Selection analysis
+
+A non-empty editor selection is a second analyze request with
+`AnalyzeRequest.selection`. Inline decorations still come from the
+full-document result.
+
+`SelectionFragment` maps the span to the tightest statement-level
+`IOperation`s in the enclosing method (including local functions
+and top-level `Main`). Columns are clamped to the line. Nested
+loops tighten into the body when the span is fully inside it.
+
+`CSharpMethodAnalyzer.AnalyzeSelection` reuses the same dimensions,
+catalog, and pattern pipeline on that fragment. Recurrence
+classification runs on a merged root (parent climb capped at 16
+hops / 64 children) so a huge multi-statement selection stays
+Unknown rather than walking an unbounded tree.
+
+The result is named `Method (selection)`. `ApproachSummarizer`
+uses the selection hint: *Narrow the selection for a tighter
+per-algorithm bound.* The panel shows this result only when the
+document version matches and the caret/start of the selection
+falls inside the analyzed span.
+
+### 2.7 Confidence
 
 High is reserved for work that does not depend on an idiom matcher.
 Everything below High must list `ConfidenceReasons`:
@@ -156,7 +208,8 @@ Everything below High must list `ConfidenceReasons`:
 - named hazard reasons (dynamic, regex, …)
 
 The panel shows these under **Confidence**. They are assumptions, not
-a formal unsoundness proof.
+a formal unsoundness proof. Recurrence and soft-hazard ids also
+cap confidence at Medium when they only annotate.
 
 ## 3. Roslyn pipeline
 
@@ -200,8 +253,8 @@ would call Unknown (interface / BCL-virtual / opaque System APIs).
 | Operation | Docs / language | Ohno behavior |
 |---|---|---|
 | `IArrayCreationOperation` | [Arrays](https://learn.microsoft.com/dotnet/csharp/language-reference/builtin-types/arrays) | Product of dimension sizes |
-| `IForEachLoopOperation` | [foreach](https://learn.microsoft.com/dotnet/csharp/language-reference/statements/iteration-statements#the-foreach-statement) | Bound = collection size; `await foreach` is opaque |
-| `IAwaitOperation` | [async](https://learn.microsoft.com/dotnet/csharp/asynchronous-programming/) | Unknown (not the local continuation) |
+| `IForEachLoopOperation` | [foreach](https://learn.microsoft.com/dotnet/csharp/language-reference/statements/iteration-statements#the-foreach-statement) | Bound = collection size; `await foreach` is hard-opaque (`await-foreach`) |
+| `IAwaitOperation` | [async](https://learn.microsoft.com/dotnet/csharp/asynchronous-programming/) | Soft: wipe only when there is no structural bound; otherwise Annotate |
 | `ILockOperation` | [lock](https://learn.microsoft.com/dotnet/csharp/language-reference/statements/lock) | Annotate; local work O(1), wait is external |
 | yield (`OperationKind.YieldReturn`) | [yield](https://learn.microsoft.com/dotnet/csharp/language-reference/statements/yield) | Annotate; cost depends on consumption |
 | `IDynamicInvocationOperation` | [dynamic](https://learn.microsoft.com/dotnet/csharp/advanced-topics/interop/using-type-dynamic) | Unknown |
@@ -254,8 +307,10 @@ methods including unbounded BFS. Comments use:
 
 `EdgeCaseTortureTests` requires fast ≡ deep on the headline bound,
 and inconclusive cases to be `O(unknown)` with a pattern id
-(dynamic, reflection, interface, regex, stream, queryable, await,
-Collatz). Deep must not “fix” these into High O(1).
+(dynamic, reflection, interface, regex, stream, queryable,
+`await-opaque`, `await-foreach`, Collatz). Deep must not “fix”
+these into High O(1). An `await` beside a resolved loop is
+Annotate + the loop bound, not a wipe.
 
 Local bodies that *are* in compilation (expensive property, indexer,
 custom `MoveNext`, user-defined `+`) must be walked.
@@ -284,21 +339,28 @@ that window/Fibonacci are Medium with a matching reason.
 | `RecursionAndLinqTests` | Linear recurrence, merge-sort shape, `IQueryable` unknown |
 | `AlgebraTests` | Simplifier / dominance |
 | `ExplanationFormatterTests` | Gloss phrases |
-| `ServerProtocolTests` | JSON-RPC initialize + analyze |
+| `ServerProtocolTests` | JSON-RPC initialize, analyze, deferred-LINQ approaches, selection |
+| `PatternApproachTests` | Soft await, binary search vs data-dependent, bounded recursion, deferred LINQ alternatives |
+| `SelectionAnalysisTests` | Inner-loop drop of outer bound, multi-loop hint, span outside a method |
 | `CompilationContextTests` | Top-level Main, primary ctor, local fn, bind warnings |
 | `ProjectWorkspaceTests` | Fast uses project `#define`s when the workspace is ready |
-| Extension Vitest | Normalize, panel, decorations, RPC round-trip |
+| Extension Vitest | Normalize, panel (approaches + hint), decorations, selection store, RPC round-trip |
 
 ## 5. Extension
 
 - `src/extension` — VS Code/Cursor extension (`ohno`).
 - `src/extension/src/ui/complexityModel.ts` — summary tree: gloss,
-  patterns, confidence reasons, dimensions, warnings.
+  approaches, patterns (with source range), confidence reasons,
+  dimensions, warnings.
+- Selection analysis is a second `ohno/analyze` with `selection`,
+  debounced (≤ 200 ms), ticketed so a stale response cannot land,
+  and stored separately from document functions.
 - Inline annotations are gated by `ohno.annotations.showInline`.
 - Hover markdown is implemented but not registered by default; the
   panel is the primary UI.
 - Protocol field names are camelCase in TypeScript and PascalCase on
-  the .NET DTO; `normalize.ts` accepts both.
+  the .NET DTO; `normalize.ts` accepts both. Required function
+  fields include `approaches` and `selectionHint`.
 
 ## 6. How to extend
 
@@ -311,14 +373,18 @@ is not worst-case (hash table, `List.Add`). Add an acceptance test.
 ### Add a hazard pattern
 
 Add a detector in `PatternRecognizer.Match`. Return `Unknown`,
-`Range`, or `Annotate`. Put opaque ids in `PatternApplicator.IsOpaque`
-if the whole method should become `O(unknown)`. Add a torture case.
+`Range`, or `Annotate`. Put **hard** opaque ids in
+`PatternApplicator.IsOpaque` if the whole method should become
+`O(unknown)` even when a loop bound exists. Soft hazards belong in
+`PatternRefiner.IsSoft`. Add a torture case and, when the shape is
+a named algorithm, an `ApproachSummarizer` entry.
 
 ### Add a recurrence idiom
 
 Extend `RecurrenceAnalyzer` only when the shape is recognizable
 without solving math. Cap confidence at Medium and `state.Note` why.
-Add a fixture method with a known closed form.
+Add a fixture method with a known closed form. Surface the form id
+on `AnalysisState.RecurrenceId` so `PatternRefiner` can merge it.
 
 ### Add a language
 
@@ -336,6 +402,8 @@ Ohno **will miss** equivalent algorithms that use:
 - custom `IEnumerable` without a walked `MoveNext`
 - BFS without a visit mark (reported `O(unknown)`, not a fake `O(n)`)
 - subset/permutation copies via `AddRange` / builders / `yield`
+- 1D memo (`dp[i] = …`) — only 2D indexers classify as memo
+- a depth cap on a recursive helper that hides the recursive call
 
 When that happens, prefer **Unknown + reason** or a looser composed
 form (`O(n C(f))`) over a tight High bound.

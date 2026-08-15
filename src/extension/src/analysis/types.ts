@@ -1,8 +1,10 @@
 export type {
+  AlgorithmApproach,
   AnalysisTier,
   AnalysisWarning,
   AnalyzeRequest,
   AnalyzeResponse,
+  ApproachRole,
   BoundingSuggestion,
   Confidence,
   EvidenceNode,

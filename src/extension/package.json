@@ -1,8 +1,8 @@
 {
   "name": "ohno",
   "displayName": "Oʰ(nᵒ) — Algorithmic Complexity",
-  "description": "Inline Big-O time and space complexity estimates for functions in the focused editor, with confidence levels, derivations, and on-demand deep analysis.",
-  "version": "0.1.1",
+  "description": "Inline Big-O time and space estimates for C# functions, with confidence, named approaches, and selection-scoped analysis.",
+  "version": "0.1.2",
   "publisher": "ohno-dev",
   "license": "MIT",
   "repository": {
