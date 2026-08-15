@@ -57,6 +57,10 @@ internal sealed class AnalysisState
     public HashSet<ISymbol> UnboundedHeaps { get; } =
         new(SymbolEqualityComparer.Default);
 
+    /// <summary>Regexes built with a linear-time engine.</summary>
+    public HashSet<ISymbol> LinearRegexes { get; } =
+        new(SymbolEqualityComparer.Default);
+
     public HashSet<IMethodSymbol> Analyzing { get; } =
         new(SymbolEqualityComparer.Default);
 
@@ -95,6 +99,12 @@ internal sealed class AnalysisState
     public List<ComplexityExpression> Retained { get; } = [];
 
     public ComplexityExpression? CurrentLoopBound { get; set; }
+
+    /// <summary>
+    /// The body of the loop currently being walked, so a nested loop
+    /// can ask whether its counter is re-seeded on each outer step.
+    /// </summary>
+    public IOperation? CurrentLoopBody { get; set; }
 
     public ComplexityExpression? FrontierBound { get; set; }
 

@@ -60,8 +60,11 @@ project graph and records a warning if it has to fall back.
 - Not a claim about I/O, locks, or thread scheduling unless a pattern
   explicitly says those are unknown. An incidental `await` or
   `IQueryable` next to a resolved loop is named and does **not**
-  wipe the local bound; `await foreach`, `dynamic`, regex, and
-  similar hard opacity still report `O(unknown)`.
+  wipe the local bound; `await foreach`, `dynamic`, backtracking
+  regex, and similar hard opacity still report `O(unknown)`. A regex
+  built with `RegexOptions.NonBacktracking` is the exception: that
+  engine is guaranteed to scan the input once, so it gets a real
+  linear bound.
 
 When a conclusive bound cannot be justified from the source, Ohno reports
 **O(unknown)** and a reason — it does not invent O(1).

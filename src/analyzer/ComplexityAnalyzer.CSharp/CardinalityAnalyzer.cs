@@ -23,6 +23,7 @@ internal static class CardinalityAnalyzer
         ApplyTree(body, Cx.One, state, depth: 0);
         HeapBoundDetector.Detect(body, state);
         WorklistBoundDetector.Detect(body, state);
+        RegexFacts.Detect(body, state);
         Publish(state);
     }
 

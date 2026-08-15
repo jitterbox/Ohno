@@ -35,6 +35,7 @@ public sealed class OperationCatalog
         catalog.RegisterImmutable();
         catalog.RegisterSpans();
         catalog.RegisterFrozen();
+        catalog.RegisterRegex();
         catalog.RegisterLinq();
         return catalog;
     }
@@ -533,6 +534,32 @@ public sealed class OperationCatalog
             space: SizeKind.Receiver, materializes: true);
         Method("System.Buffers.SearchValues`1", "Contains", 1,
             SizeKind.Constant);
+    }
+
+    /// <summary>
+    /// Constructing a regex compiles the pattern, which is linear in
+    /// the <em>pattern</em> — normally a source literal, and so Θ(1) in
+    /// the input dimensions. A pattern built at runtime resolves to
+    /// that value's size instead. Matching is deliberately absent:
+    /// the backtracking engine's cost is not a function of size alone,
+    /// and the non-backtracking engine is handled by
+    /// <c>RegexFacts</c>.
+    /// </summary>
+    private void RegisterRegex()
+    {
+        const string regex = "System.Text.RegularExpressions.Regex";
+        for (var arity = 1; arity <= 3; arity++)
+        {
+            Method(regex, ".ctor", arity, SizeKind.Receiver,
+                space: SizeKind.Receiver);
+        }
+
+        Method(regex, "get_Options", 0, SizeKind.Constant);
+        Method(regex, "get_RightToLeft", 0, SizeKind.Constant);
+        Method(regex, "Escape", 1, SizeKind.Receiver,
+            space: SizeKind.Receiver, materializes: true);
+        Method(regex, "Unescape", 1, SizeKind.Receiver,
+            space: SizeKind.Receiver, materializes: true);
     }
 
     /// <summary>

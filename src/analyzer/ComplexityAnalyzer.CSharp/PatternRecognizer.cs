@@ -26,12 +26,14 @@ namespace ComplexityAnalyzer.CSharp;
 internal static class PatternRecognizer
 {
     public static IReadOnlyList<RecognizedPattern> Recognize(
-        IMethodSymbol method, IOperation? body)
+        IMethodSymbol method,
+        IOperation? body,
+        AnalysisState? state = null)
     {
         if (body is null) return [];
         var hits = new List<RecognizedPattern>();
         var facts = new Dictionary<IOperation, LoopFacts>();
-        Collect(method, body, inLoop: false, hits, facts, depth: 0);
+        Collect(method, body, inLoop: false, hits, facts, state, depth: 0);
         return hits.DistinctBy(h => h.Id).ToArray();
     }
 
@@ -41,15 +43,16 @@ internal static class PatternRecognizer
         bool inLoop,
         List<RecognizedPattern> hits,
         Dictionary<IOperation, LoopFacts> facts,
+        AnalysisState? state,
         int depth)
     {
         if (depth >= AnalysisState.MaxOperationDepth) return;
-        var hit = Match(method, operation, inLoop, facts);
+        var hit = Match(method, operation, inLoop, facts, state);
         if (hit is not null) hits.Add(hit);
         var nested = inLoop || operation is IForLoopOperation
             or IForEachLoopOperation or IWhileLoopOperation;
         foreach (var child in operation.ChildOperations)
-            Collect(method, child, nested, hits, facts, depth + 1);
+            Collect(method, child, nested, hits, facts, state, depth + 1);
     }
 
     /// <summary>
@@ -152,12 +155,13 @@ internal static class PatternRecognizer
         IMethodSymbol method,
         IOperation operation,
         bool inLoop,
-        Dictionary<IOperation, LoopFacts> facts) =>
+        Dictionary<IOperation, LoopFacts> facts,
+        AnalysisState? state) =>
         Dynamic(operation)
         ?? Reflection(operation)
         ?? Interface(operation)
         ?? Delegate(operation)
-        ?? OpaqueCall(operation)
+        ?? OpaqueCall(operation, state)
         ?? Queryable(operation)
         ?? Await(operation)
         ?? DeferredLinq(operation)
@@ -225,10 +229,25 @@ internal static class PatternRecognizer
             operation);
     }
 
-    private static RecognizedPattern? OpaqueCall(IOperation operation)
+    private static RecognizedPattern? OpaqueCall(
+        IOperation operation, AnalysisState? state)
     {
         if (operation is not IInvocationOperation call) return null;
         var type = SymbolKeys.TypeName(call.TargetMethod.ContainingType);
+        if (type == "System.Text.RegularExpressions.Regex"
+            && state is not null
+            && RegexFacts.IsLinear(call, state))
+        {
+            // The non-backtracking engine never revisits a character,
+            // so this one has a real bound and must not be wiped.
+            return Annotate(
+                "regex-linear",
+                "Non-backtracking regular expression",
+                "the engine scans the input once, so the match is "
+                + "linear in the subject rather than pattern-dependent",
+                operation);
+        }
+
         return type switch
         {
             "System.Text.RegularExpressions.Regex" =>

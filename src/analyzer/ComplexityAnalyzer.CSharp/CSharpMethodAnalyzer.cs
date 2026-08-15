@@ -161,7 +161,7 @@ public sealed partial class CSharpMethodAnalyzer
         var confidence = Downgrade(cost, time);
         var evidence = EvidencePruner.Prune(cost.Evidence);
         var raw = parts
-            .SelectMany(p => PatternRecognizer.Recognize(method, p))
+            .SelectMany(p => PatternRecognizer.Recognize(method, p, state))
             .DistinctBy(p => p.Id)
             .ToArray();
         var patterns = PatternRefiner.Refine(raw, time, state);

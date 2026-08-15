@@ -201,7 +201,8 @@ public sealed partial class CSharpMethodAnalyzer
         HeapBoundDetector.Detect(loop.Body, state);
         var (bound, label) = LoopBoundInferrer.Infer(loop, state);
         if (state.CurrentLoopBound is not null
-            && LoopBoundInferrer.IsProgressOnly(loop.Body))
+            && LoopBoundInferrer.IsProgressOnly(loop.Body)
+            && !LoopBoundInferrer.ResetsCounter(loop, state))
         {
             bound = Cx.One;
             label = "amortized pointer step";
@@ -229,9 +230,12 @@ public sealed partial class CSharpMethodAnalyzer
             return AnalyzeLoop(loop.Body, bound, label, loop, state);
 
         var previous = state.CurrentLoopBound;
+        var previousBody = state.CurrentLoopBody;
         state.CurrentLoopBound = bound;
+        state.CurrentLoopBody = loop.Body;
         var body = Analyze(loop.Body, state);
         state.CurrentLoopBound = previous;
+        state.CurrentLoopBody = previousBody;
         var combined = CostComposer.Sequential(
             new[] { move, body }, RoslynSpans.Of(loop.Body));
         NoteUnboundedHeaps(bound, state);
@@ -248,9 +252,12 @@ public sealed partial class CSharpMethodAnalyzer
         AnalysisState state)
     {
         var previous = state.CurrentLoopBound;
+        var previousBody = state.CurrentLoopBody;
         state.CurrentLoopBound = bound;
+        state.CurrentLoopBody = body;
         var bodyCost = Analyze(body, state);
         state.CurrentLoopBound = previous;
+        state.CurrentLoopBody = previousBody;
         NoteUnboundedHeaps(bound, state);
         NoteLoopShape(label, state);
         return CostComposer.Loop(bound, bodyCost, label, RoslynSpans.Of(loop));

@@ -71,7 +71,10 @@ by a term that lacks that call.
 Loop bounds come from `Length` / `Count`, a compared integral
 parameter, a recognized log update (`*= 2`, `/= 2`, `>>= 1`), a
 null-terminated walk, a visited-queue frontier, or a refill
-worklist (iterations are **not** `Count`). See
+worklist (iterations are **not** `Count`). A literal ceiling on a
+counter that steps by a constant is a fixed count — `j < 8` does not
+inherit the enclosing loop's bound — but a literal ceiling on a
+variable that halves stays logarithmic. See
 [iteration statements](https://learn.microsoft.com/dotnet/csharp/language-reference/statements/iteration-statements).
 
 `CardinalityAnalyzer` walks
@@ -117,6 +120,14 @@ classifies a handful of source idioms:
 | Loop + recurse + clone of k | O(k C(n, k)) | O(k C(n, k)) |
 | Recurse on neighbors + `bool[]` | O(k n) | O(n) |
 
+The **amortized pointer step** — an inner `while` that only advances a
+pointer costs O(1) per outer iteration — applies only while the
+pointer keeps its position between outer steps. If the counter is
+re-seeded inside the outer body (assigned, or declared there, as
+insertion sort's `j = i - 1` does), the amortization does not hold and
+the inner loop is charged its own bound. Two-pointer scans are
+unaffected: their pointer never rewinds.
+
 Local-function **declarations** are not walked as executable
 statements (`ILocalFunctionOperation`). Cost is paid at the call.
 Otherwise subset/permutation/DFS bodies would be counted twice.
@@ -138,6 +149,14 @@ perm generation, visited graph walk, linear / D&C / branching
 recursion) are merged into the same list. A second integral
 parameter that is not decreased in the recursive calls is a
 **bounded recursion** alternative, not a rewrite of the headline.
+
+Regex is two patterns, not one. The default engine backtracks, so it
+stays hard-opaque. `RegexOptions.NonBacktracking` carries a documented
+linear-time guarantee from the runtime, so `RegexFacts` gives it a real
+bound in the subject's length and the `regex-linear` id annotates
+rather than wipes. The option has to be provable at the construction
+site, on the static overload, or on `[GeneratedRegex]`; a `Regex`
+arriving as a parameter keeps the opaque treatment.
 
 `PatternRefiner` then:
 
@@ -407,6 +426,9 @@ that window/Fibonacci are Medium with a matching reason.
 | `CardinalityGapTests` | Worklists, SizeDelta, heapify, SortedSet, Span, CFG |
 | `BclCatalogTests` | Everyday BCL: comparer/selector overloads, string members, spans, frozen sets, two-source LINQ. Asserts no bound collapses to a constant and no ordinary call leaves a `C(name)` |
 | `AnalyzerBenchmarkTests` | Wall-clock ceilings for the debounce path; prints per-fixture and per-function timings. Numbers are indicative — the same fixture has varied 2x run to run — so the ceiling is the contract, not the printed figure |
+| `RegexEngineTests` | Backtracking stays opaque; `NonBacktracking` earns a linear bound, including combined options, the static overload, and a materializing `Replace` |
+| `BoundaryBenchTests` | The adjacent-class boundaries learned predictors slide between: linear vs linearithmic, linearithmic vs quadratic, log vs linear, and shapes that look heavier or lighter than they are |
+| `MemberSurfaceTests` | Which members become results: scanning accessors and operators appear, auto-properties do not |
 | `RobustnessTests` | Generated-code shapes that must degrade rather than crash: 5,000-term expressions, 20,000-element initializers, 600-deep nesting, plus cancellation reaching inside a single method |
 | `AcceptanceTests` | Linear/nested/triangular loops, dictionary writes, literals |
 | `RecursionAndLinqTests` | Linear recurrence, merge-sort shape, `IQueryable` unknown |

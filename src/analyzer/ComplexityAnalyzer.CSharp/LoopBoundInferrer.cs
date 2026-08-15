@@ -76,6 +76,22 @@ internal static class LoopBoundInferrer
     {
         if (IsComparison(binary.OperatorKind))
         {
+            // A literal ceiling on a counter that steps by a constant
+            // is a fixed iteration count: `for (j = 0; j < 8; j++)`
+            // runs a constant number of times and must not inherit the
+            // enclosing loop's bound.
+            //
+            // The counter has to be one the increment scan actually
+            // tracked. `while (size > 1) size >>= 1` also compares
+            // against a literal, but it moves multiplicatively, so its
+            // count is logarithmic in the starting value — the halving
+            // detection downstream handles that.
+            if (IsLiteral(binary.RightOperand)
+                && IsSteppedCounter(binary.LeftOperand, state))
+            {
+                return Cx.One;
+            }
+
             var right = SizeResolver.Resolve(binary.RightOperand, state);
             var left = SizeResolver.Resolve(binary.LeftOperand, state);
             // j < i where i is a loop index: use the larger-looking side.
@@ -86,6 +102,23 @@ internal static class LoopBoundInferrer
 
         return Cx.Var("n");
     }
+
+    private static bool IsLiteral(IOperation operation) =>
+        SizeResolver.Unwrap(operation) is ILiteralOperation
+        {
+            ConstantValue.HasValue: true,
+        };
+
+    /// <summary>
+    /// A local the increment scan saw moving by a constant step. This
+    /// is the strict form of <see cref="IsLoopIndex"/>, which also
+    /// accepts any integral local as a fallback — too loose to decide
+    /// that a loop terminates in constant time.
+    /// </summary>
+    private static bool IsSteppedCounter(
+        IOperation operation, AnalysisState state) =>
+        SizeResolver.Unwrap(operation) is ILocalReferenceOperation local
+        && state.LoopIndices.Contains(local.Local);
 
     private static string Fmt(ComplexityExpression expression) =>
         ComplexityFormatter.Format(expression);
@@ -223,6 +256,92 @@ internal static class LoopBoundInferrer
         };
     }
 
+
+    /// <summary>
+    /// Whether the inner loop's counter is re-seeded by the enclosing
+    /// loop, which is what separates a two-pointer scan from a
+    /// quadratic one.
+    /// </summary>
+    /// <remarks>
+    /// The amortized-pointer rule says an inner <c>while</c> that only
+    /// advances a pointer costs O(1) per outer step, because across the
+    /// whole outer loop the pointer moves at most n times in total.
+    /// That argument holds precisely while the pointer keeps its
+    /// position between outer iterations.
+    /// <para>
+    /// Insertion sort breaks it: <c>j = i - 1</c> puts the counter back
+    /// every time, so the inner walk can run its full length on each
+    /// outer step and the loop really is quadratic. A reset is visible
+    /// in the source, so this is a proof, not a guess.
+    /// </para>
+    /// </remarks>
+    public static bool ResetsCounter(
+        IWhileLoopOperation loop, AnalysisState state)
+    {
+        if (state.CurrentLoopBody is not { } outer) return false;
+        var counters = CounterSymbols(loop.Condition);
+        if (counters.Count == 0) return false;
+
+        foreach (var op in OutsideInnerLoop(outer, loop))
+        {
+            switch (op)
+            {
+                // Re-seeded: `j = i - 1` before each inner walk.
+                case ISimpleAssignmentOperation assign
+                    when Targets(assign.Target, counters):
+                    return true;
+
+                // Declared inside the outer body, so it is a fresh
+                // variable on every outer step — the same reset, spelt
+                // as `var j = i - 1`.
+                case IVariableDeclaratorOperation declarator
+                    when counters.Contains(declarator.Symbol):
+                    return true;
+            }
+        }
+
+        return false;
+    }
+
+    private static bool Targets(
+        IOperation target, HashSet<ISymbol> counters)
+    {
+        var symbol = SizeResolver.TargetSymbol(target);
+        return symbol is not null && counters.Contains(symbol);
+    }
+
+    /// <summary>Locals the loop condition tests.</summary>
+    private static HashSet<ISymbol> CounterSymbols(IOperation? condition)
+    {
+        var symbols = new HashSet<ISymbol>(SymbolEqualityComparer.Default);
+        if (condition is null) return symbols;
+        foreach (var op in OperationTree.SelfAndDescendants(condition))
+        {
+            if (op is ILocalReferenceOperation local)
+                symbols.Add(local.Local);
+        }
+
+        return symbols;
+    }
+
+    /// <summary>
+    /// The enclosing body without the inner loop's own subtree, so the
+    /// inner loop's stepping does not read as a reset.
+    /// </summary>
+    private static IEnumerable<IOperation> OutsideInnerLoop(
+        IOperation outer, IOperation inner)
+    {
+        var stack = new Stack<IOperation>();
+        stack.Push(outer);
+        while (stack.Count > 0)
+        {
+            var current = stack.Pop();
+            if (ReferenceEquals(current, inner)) continue;
+            yield return current;
+            foreach (var child in current.ChildOperations)
+                stack.Push(child);
+        }
+    }
 
     public static bool IsProgressOnly(IOperation body)
     {

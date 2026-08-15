@@ -38,6 +38,9 @@ public sealed partial class CSharpMethodAnalyzer
         if (method.DeclaringSyntaxReferences.Length > 0)
             return AnalyzeUserCall(call, method, state);
 
+        if (RegexFacts.IsLinear(call, state))
+            return LinearRegexCall(call, state);
+
         if (IsOpaqueSystem(method))
             return UnknownCall(method.Name, RoslynSpans.Of(call),
                 "this API's cost is not a fixed primitive");
@@ -57,6 +60,37 @@ public sealed partial class CSharpMethodAnalyzer
             method.Name,
             RoslynSpans.Of(call),
             NoSummaryReason(method));
+    }
+
+    /// <summary>
+    /// A match on the non-backtracking engine, which .NET guarantees
+    /// scans the input once. The bound is stated in the subject's
+    /// length; the pattern is a constant of the source, not a
+    /// dimension of the input.
+    /// </summary>
+    private ComposedCost LinearRegexCall(
+        IInvocationOperation call, AnalysisState state)
+    {
+        var name = call.TargetMethod.Name;
+        var subject = RegexFacts.Subject(call);
+        var size = subject is null
+            ? Cx.Var("n")
+            : SizeResolver.Resolve(subject, state);
+        var materializes = RegexFacts.Materializes(name);
+        if (materializes) state.Retained.Add(size);
+
+        state.Note(
+            AnalysisConfidence.Medium,
+            "Regex cost assumes the non-backtracking engine's linear "
+            + "scan; the bound covers the input, not the pattern.");
+
+        return ComposedCost.Of(
+            size,
+            materializes ? size : Cx.One,
+            "call",
+            name + " (non-backtracking)",
+            RoslynSpans.Of(call),
+            AnalysisConfidence.Medium);
     }
 
     /// <summary>
