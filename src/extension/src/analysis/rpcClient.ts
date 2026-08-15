@@ -169,7 +169,7 @@ export function resolveServerPath(
       'ComplexityAnalyzer.Server',
       'bin',
       'Debug',
-      'net8.0',
+      'net10.0',
     ),
     path.join(
       extensionPath,
@@ -178,7 +178,7 @@ export function resolveServerPath(
       'ComplexityAnalyzer.Server',
       'bin',
       'Release',
-      'net8.0',
+      'net10.0',
     ),
   ];
   for (const dir of dirs) {

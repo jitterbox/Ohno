@@ -420,7 +420,12 @@ form (`O(n C(f))`) over a tight High bound.
 
 ## 8. Commands
 
+Requires the **.NET 10 SDK**. `src/analyzer/global.json` pins it, and the
+solution is `Ohno.Complexity.slnx` — the XML solution format, which
+older SDKs cannot parse.
+
 ```bash
+dotnet test src/analyzer            # builds the whole .slnx
 dotnet test src/analyzer/ComplexityAnalyzer.Tests -c Release
 cd src/extension && npm test
 

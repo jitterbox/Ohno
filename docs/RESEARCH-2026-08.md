@@ -16,14 +16,37 @@ algorithmic cost, and UX against both.
 
 ## 1. Platform research
 
-### 1.1 Roslyn version state — already current
+### 1.1 Roslyn version state — package current, toolchain was not
 
 `Microsoft.CodeAnalysis.CSharp` **5.6.0** (2026-07-02) is the latest
-release, and it is what every project here references. The package
-ships `net8.0`, `net10.0`, and `netstandard2.0` assets, so the
-`net8.0` target framework and the `dotnet-version: 8.0.x` CI matrix are
-valid — **no upgrade is required or available**. Any claim that Ohno is
-"behind" on Roslyn is wrong.
+release, and it is what every project here references. Any claim that
+Ohno is "behind" on the Roslyn *package* is wrong.
+
+The **SDK** was another matter. Every project targeted `net8.0` and all
+four CI jobs declared `dotnet-version: '8.0.x'`, while
+`src/analyzer` contains only `Ohno.Complexity.slnx`. **The .NET 8 SDK
+cannot parse `.slnx`** — SDK ≥ 9.0.200 is required. Reproduced here on a
+clean 8.0.129 install:
+
+```
+$ dotnet restore                       # in src/analyzer
+error MSB1003: Specify a project or solution file.
+$ dotnet restore Ohno.Complexity.slnx
+error MSB4068: The element <Solution> is unrecognized…
+```
+
+CI is nonetheless green (run #6 on `master`) because the hosted runner
+image also carries newer SDKs and nothing pins the version, so the CLI
+silently selects a higher one than the workflow declares. The declared
+toolchain and the working toolchain were different — a contributor with
+only the declared SDK could not build at all.
+
+**Resolved in this branch**: the analyzer moved to the **.NET 10 SDK**
+(10.0.110) and `net10.0`, with a `global.json` pinning it so the
+mismatch cannot recur silently. Roslyn 5.6.0 ships `net10.0` assets, the
+whole `.slnx` now builds from a bare `dotnet test`, and the CS9057
+"analyzer references a newer compiler" warnings that the 8.0 SDK emitted
+on every build are gone.
 
 What *is* unused is a set of APIs that arrived across 4.x → 5.x:
 
@@ -199,22 +222,44 @@ Let *N* = operations in a method, *D* = block nesting depth.
 None of these is fatal on a 30-line method; together they are why a
 large file feels heavy on the 250 ms debounce path.
 
-### 3.4 [S2] `model.GetDiagnostics()` on every keystroke *and* every selection
+### 3.4 [S2] Measured cost of a keystroke pass
 
-`BindWarnings.For` (`BindWarnings.cs:62`) calls `SemanticModel.GetDiagnostics()`,
-which forces a **full bind of every method body in the file** plus
-nullable/definite-assignment analysis Ohno never reads — to extract
-CS0246/CS0234 only. It runs on:
+Measured, not assumed — `AnalyzerBenchmarkTests` plus a throwaway
+phase breakdown, .NET 10 Release, warm (best of 3):
 
-- every debounced document analysis (250 ms after each keystroke), and
-- **every selection analysis**, added in v0.1.2
-  (`CSharpFileAnalyzer.AnalyzeSelection` → `BindWarnings.For(model)`).
+| Fixture | Lines | Functions | Warm full pass | Per function |
+|---|---|---|---|---|
+| `RoslynComplexityEdgeCases.cs` | 734 | 49 | **199 ms** | 4.1 ms |
+| `OptimalSolutions.cs` | 500 | 25 | **157 ms** | 6.3 ms |
+| `RoslynSpaceComplexityPatterns.cs` | 609 | 25 | **105 ms** | 4.2 ms |
 
-Selection analysis re-sends the **whole document text** and re-runs the
-whole pipeline to score a two-line span. Dragging a selection is now the
-most expensive interaction in the extension.
+Phase split on the 734-line fixture (43 methods walked):
 
-### 3.5 [S2] Selection and document analyses cancel each other
+| Phase | Cost | Share |
+|---|---|---|
+| Parse + compilation + `GetSemanticModel` | 4–5 ms | ~3% |
+| `BindWarnings` → `model.GetDiagnostics()` | 56–74 ms | **~35%** |
+| Per-method `IOperation` walk | 100–138 ms | **~60%** |
+
+Two corrections to what this audit assumed before measuring:
+
+1. **`GetDiagnostics()` is expensive but not dominant.** It forces a
+   full bind of every method body plus nullable/definite-assignment
+   analysis Ohno never reads, to extract CS0246/CS0234 only — a third of
+   every keystroke pass on the adversarial fixture, but only 1–3 ms on a
+   clean 500-line file. It is worth caching (PLAN 2.7); it is not the
+   headline.
+2. **Selection analysis is cheap, not expensive.** It measures **4 ms
+   against a 256 ms full pass** on the same file, because
+   `AnalyzeSelection` walks one fragment rather than every method. The
+   v0.1.2 selection feature did *not* create a hot path. The §3.5
+   cancellation collision is a real defect on its own terms — it just
+   is not a cost problem.
+
+The dominant cost is the per-method walk, which is what §3.3 is about,
+and 4–6 ms/function is the number Phase 2 has to move.
+
+### 3.5 [S2] Selection and document analyses cancel each other (correctness, not cost)
 
 `AnalyzerService.LinkFastCancel` (`AnalyzerService.cs:238`) keeps **one**
 `_fastCts` for the whole Fast tier. Selection analysis uses
@@ -258,7 +303,9 @@ Upstream of that, the extension never even offers one:
 - `solutionContext.ts:62` — `isSln()` tests `.sln` only
 
 **This repository's own solution is `src/analyzer/Ohno.Complexity.slnx`.**
-Ohno cannot do project-backed analysis of itself.
+Ohno cannot do project-backed analysis of itself. Now that the analyzer
+builds on the .NET 10 SDK (§1.1), the server half is ready and only the
+extension-side discovery is missing — PLAN 4.1.
 
 ### 3.8 [S2] Whole classes of members are never annotated
 

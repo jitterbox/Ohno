@@ -192,6 +192,9 @@ bundled server is `ComplexityAnalyzer.Server` on Unix and
 
 ## Development
 
+Requires the **.NET 10 SDK** (the analyzer solution is
+`Ohno.Complexity.slnx`) and Node 22.
+
 ```bash
 # Analyzer
 dotnet test src/analyzer/ComplexityAnalyzer.Tests
