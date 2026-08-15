@@ -43,16 +43,43 @@ function normalizeFn(raw: unknown): FunctionComplexity {
     confidenceReasons: asArray(
       pick(r, 'confidenceReasons', 'ConfidenceReasons'),
     ).map((item) => typeof item === 'string' ? item : ''),
+    approaches: asArray(pick(r, 'approaches', 'Approaches'))
+      .map(normalizeApproach),
+    selectionHint: str(r, 'selectionHint', 'SelectionHint'),
     tier: (str(r, 'tier', 'Tier') || 'fast') as FunctionComplexity['tier'],
   };
 }
 
 function normalizePattern(raw: unknown): FunctionComplexity['patterns'][0] {
   const r = asRecord(raw);
+  const effect = str(r, 'effect', 'Effect').toLowerCase();
   return {
     id: str(r, 'id', 'Id'),
     label: str(r, 'label', 'Label'),
     reason: str(r, 'reason', 'Reason'),
+    effect: effect === 'unknown' || effect === 'range' || effect === 'annotate'
+      ? effect
+      : undefined,
+    range: pick(r, 'range', 'Range')
+      ? normalizeRange(pick(r, 'range', 'Range'))
+      : undefined,
+  };
+}
+
+function normalizeApproach(
+  raw: unknown,
+): FunctionComplexity['approaches'][0] {
+  const r = asRecord(raw);
+  const role = str(r, 'role', 'Role').toLowerCase();
+  return {
+    id: str(r, 'id', 'Id'),
+    name: str(r, 'name', 'Name'),
+    summary: str(r, 'summary', 'Summary'),
+    role: role === 'nested' || role === 'sequential'
+      || role === 'alternative'
+      ? role
+      : 'dominant',
+    timeHint: str(r, 'timeHint', 'TimeHint') || undefined,
   };
 }
 

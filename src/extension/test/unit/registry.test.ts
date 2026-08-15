@@ -52,6 +52,8 @@ describe('ResultStore', () => {
         explanation: 'Linear time',
         patterns: [],
         confidenceReasons: [],
+        approaches: [],
+        selectionHint: '',
         tier: 'fast',
       }],
     };
@@ -61,5 +63,38 @@ describe('ResultStore', () => {
       .toBe('Foo');
     expect(store.functionAt(uri as never, new Position(0, 0) as never))
       .toBeUndefined();
+  });
+
+  it('stores a selection analysis separately', () => {
+    const store = new ResultStore();
+    const uri = Uri.parse('file:///a.cs');
+    const fn = {
+      id: 'Foo#selection',
+      name: 'Foo (selection)',
+      kind: 'method' as const,
+      range: {
+        startLine: 4, startCharacter: 0, endLine: 6, endCharacter: 1,
+      },
+      signatureRange: {
+        startLine: 4, startCharacter: 0, endLine: 4, endCharacter: 8,
+      },
+      time: 'O(m)',
+      space: 'O(1)',
+      confidence: 'high' as const,
+      dimensions: [],
+      evidence: { kind: 'loop', label: 'inner', cost: 'm', children: [] },
+      warnings: [],
+      boundingSuggestions: [],
+      explanation: 'Linear time',
+      patterns: [],
+      confidenceReasons: [],
+      approaches: [],
+      selectionHint: '',
+      tier: 'fast' as const,
+    };
+    store.setSelection(uri.toString(), 1, fn);
+    expect(store.selectionFor(uri as never)?.function.time).toBe('O(m)');
+    store.clearSelection(uri as never);
+    expect(store.selectionFor(uri as never)).toBeUndefined();
   });
 });

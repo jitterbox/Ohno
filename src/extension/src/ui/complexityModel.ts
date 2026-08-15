@@ -13,7 +13,8 @@ export type ItemKind =
   | 'evidence'
   | 'warning'
   | 'bound'
-  | 'deep';
+  | 'deep'
+  | 'approach';
 
 export interface ComplexityItem {
   id: string;
@@ -55,7 +56,7 @@ function buildSummary(
 ): ComplexityItem[] {
   return [
     ...deepGroup(deepRun),
-    ...headlineItems(fn),
+    ...headlineItems(fn, uri),
     ...dimensionGroup(fn),
     ...warningGroup(fn, uri),
     ...boundGroup(fn),
@@ -103,7 +104,10 @@ function deepIcon(status: DeepRun['status']): string {
   }
 }
 
-function headlineItems(fn: FunctionComplexity): ComplexityItem[] {
+function headlineItems(
+  fn: FunctionComplexity,
+  uri: string,
+): ComplexityItem[] {
   return [
     leaf({
       id: 'name',
@@ -119,7 +123,8 @@ function headlineItems(fn: FunctionComplexity): ComplexityItem[] {
       icon: 'dashboard',
     }),
     ...explanationItems(fn),
-    ...patternItems(fn),
+    ...approachItems(fn),
+    ...patternItems(fn, uri),
     ...confidenceItems(fn),
   ];
 }
@@ -164,7 +169,51 @@ function explanationItems(fn: FunctionComplexity): ComplexityItem[] {
   })];
 }
 
-function patternItems(fn: FunctionComplexity): ComplexityItem[] {
+function approachItems(fn: FunctionComplexity): ComplexityItem[] {
+  if (!fn.approaches?.length) return [];
+  const children = fn.approaches.map((a) => leaf({
+    id: `approach:${a.id}`,
+    kind: 'approach',
+    label: a.timeHint ? `${a.name} · ${a.timeHint}` : a.name,
+    icon: roleIcon(a.role),
+    description: a.role,
+    tooltip: a.summary,
+  }));
+  if (fn.selectionHint) {
+    children.push(leaf({
+      id: 'approach:hint',
+      kind: 'approach',
+      label: fn.selectionHint,
+      icon: 'info',
+      tooltip: fn.selectionHint,
+      italic: true,
+    }));
+  }
+  return [group(
+    'approaches',
+    'Approaches',
+    'type-hierarchy',
+    children,
+  )];
+}
+
+function roleIcon(role: string): string {
+  switch (role) {
+    case 'nested':
+      return 'symbol-namespace';
+    case 'sequential':
+      return 'list-ordered';
+    case 'alternative':
+      return 'compare-changes';
+    default:
+      return 'target';
+  }
+}
+
+function patternItems(
+  fn: FunctionComplexity,
+  uri: string,
+): ComplexityItem[] {
   if (!fn.patterns?.length) return [];
   return [group(
     'patterns',
@@ -177,6 +226,8 @@ function patternItems(fn: FunctionComplexity): ComplexityItem[] {
       icon: 'tag',
       description: p.reason,
       tooltip: `${p.label}: ${p.reason}`,
+      range: p.range,
+      uri: p.range ? uri : undefined,
     })),
   )];
 }

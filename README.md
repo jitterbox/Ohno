@@ -28,12 +28,21 @@ The **Complexity** activity-bar view shows:
 
 - a plain-language gloss (*Linearithmic time*, *Quadratic space*, or
   *Unknown: The complexity cannot be easily determined because …*)
-- **Recognized patterns** (null-terminated walk, deferred LINQ, regex, …)
+- **Approaches** — up to three readings of the same function
+  (dominant, nested, sequential, or alternative)
+- **Recognized patterns** (null-terminated walk, deferred LINQ vs
+  EF/`IQueryable`, regex, bounded recursion, …)
 - **Confidence** and, when it is below high, *why* (the assumption that
   would fail if the source used a different loop, type, or store)
 - input dimensions (`n = values.Length`, `k = parameter k`)
 - a derivation tree that rolls up like spreadsheet subtotals
 - bounding suggestions (for example, cap a priority queue at `k`)
+
+Select a statement or loop inside a method to re-analyze **that
+span only**. The panel title becomes `Name (selection)`. If more
+than one approach remains, a hint asks you to narrow the selection.
+Clear the selection to return to the whole function. Inline
+annotations stay per-function; they do not follow the selection.
 
 Automatic analysis is the **fast** tier: it uses a loaded `.sln`,
 or the `.csproj` found by walking up from the file, when that
@@ -48,7 +57,10 @@ project graph and records a warning if it has to fall back.
 - Not a proof. Idiom matchers can miss an equivalent algorithm written
   with a different loop, a helper, or a custom collection.
 - Not a claim about I/O, locks, or thread scheduling unless a pattern
-  explicitly says those are unknown.
+  explicitly says those are unknown. An incidental `await` or
+  `IQueryable` next to a resolved loop is named and does **not**
+  wipe the local bound; `await foreach`, `dynamic`, regex, and
+  similar hard opacity still report `O(unknown)`.
 
 When a conclusive bound cannot be justified from the source, Ohno reports
 **O(unknown)** and a reason — it does not invent O(1).
@@ -60,6 +72,16 @@ When a conclusive bound cannot be justified from the source, Ohno reports
 | C# | On | Roslyn `IOperation` + BCL/LINQ catalog |
 
 TypeScript is not selectable.
+
+## Commands
+
+| Command | What it does |
+|---|---|
+| **Ohno: Run Deep Analysis** | Wait for the project graph and re-analyze |
+| **Ohno: Show Complexity Derivation** | Focus the Complexity view |
+| **Ohno: Focus Complexity Panel** | Open the activity-bar view |
+| **Ohno: Toggle Complexity Annotations** | Hide or show end-of-line decorations |
+| **Ohno: Copy Complexity Summary** | Copy `time · space` for the selection, if any, otherwise the function at the caret |
 
 ## Settings
 
@@ -105,6 +127,19 @@ Below high, the panel lists the specific assumptions (for example,
 
 *Unknown: The complexity cannot be easily determined because [reason].*
 
+**Approaches** are competing or composed readings, not extra proofs:
+
+| Role | Meaning |
+|---|---|
+| Dominant | The headline bound |
+| Nested | Incidental work inside that bound (for example `await` beside a loop) |
+| Sequential | Distinct steps in the same span (two loops, then a materialize) |
+| Alternative | Another honest reading (cache hit vs miss, bounded vs unbounded recursion, enumerate a deferred LINQ query) |
+
+Deferred `System.Linq.Enumerable` is in-memory query construction
+(O(1) to build). EF / `IQueryable` is a different approach: the
+provider runs the tree; Ohno does not invent a SQL bound.
+
 ## Architecture
 
 ```
@@ -122,7 +157,9 @@ ComplexityAnalyzer.DotNet   BCL / LINQ cost catalog
 ```
 
 The wire contract is `src/shared/protocol.ts` and must stay in sync with
-`src/analyzer/ComplexityAnalyzer.Server/Protocol/Contracts.cs`.
+`src/analyzer/ComplexityAnalyzer.Server/Protocol/Contracts.cs` and
+`src/shared/protocol.schema.json`. `AnalyzeRequest.selection` is the
+optional span for selection-scoped analysis.
 
 Roslyn entry points:
 

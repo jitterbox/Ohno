@@ -37,6 +37,8 @@ describe('normalizeAnalyzeResponse', () => {
     expect(result.functions[0].time).toBe('O(n log k)');
     expect(result.functions[0].confidence).toBe('high');
     expect(result.functions[0].evidence.children).toEqual([]);
+    expect(result.functions[0].approaches).toEqual([]);
+    expect(result.functions[0].selectionHint).toBe('');
     expect(result.warnings).toEqual([]);
   });
 

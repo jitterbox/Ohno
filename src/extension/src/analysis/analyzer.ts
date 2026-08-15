@@ -2,6 +2,7 @@ import type * as vscode from 'vscode';
 import type {
   AnalysisTier,
   AnalyzeResponse,
+  LineRange,
 } from './types';
 
 export interface AnalyzeDocumentRequest {
@@ -9,6 +10,7 @@ export interface AnalyzeDocumentRequest {
   text: string;
   version: number;
   tier: AnalysisTier;
+  selection?: LineRange;
 }
 
 export interface IComplexityAnalyzer {

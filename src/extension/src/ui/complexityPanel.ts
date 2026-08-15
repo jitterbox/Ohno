@@ -8,7 +8,7 @@ import {
   withFunctionRange,
 } from './evidenceMatch';
 import { ItemTreeProvider } from './complexityTree';
-import { normalizeRange } from './ranges';
+import { normalizeRange, rangeContains } from './ranges';
 import type { ResultStore } from './resultStore';
 
 export class ComplexityPanel implements vscode.Disposable {
@@ -80,14 +80,24 @@ export class ComplexityPanel implements vscode.Disposable {
     const file = this.store.get(editor.document.uri);
     if (!file) return undefined;
     const sel = editor.selection;
+    const range = normalizeRange(
+      sel.start.line,
+      sel.start.character,
+      sel.end.line,
+      sel.end.character,
+    );
+    if (!sel.isEmpty) {
+      const snap = this.store.selectionFor(editor.document.uri);
+      if (snap
+        && snap.version === editor.document.version
+        && rangeContains(
+          snap.function.range, range.startLine, range.startCharacter)) {
+        return snap.function;
+      }
+    }
     return pickFunction(
       file.functions,
-      normalizeRange(
-        sel.start.line,
-        sel.start.character,
-        sel.end.line,
-        sel.end.character,
-      ),
+      range,
       { line: sel.active.line, character: sel.active.character },
     );
   }

@@ -8,7 +8,8 @@ public sealed record AnalyzedFunction(
     IMethodSymbol Symbol,
     ComplexityResult Result,
     LineSpan Range,
-    LineSpan SignatureRange);
+    LineSpan SignatureRange,
+    bool IsSelection = false);
 
 public sealed record FileAnalysis(
     IReadOnlyList<AnalyzedFunction> Functions,
@@ -62,6 +63,41 @@ public sealed class CSharpFileAnalyzer
 
         TryAddEntryPoint(model, tier, functions, token);
         return new FileAnalysis(functions, BindWarnings.For(model));
+    }
+
+    public FileAnalysis AnalyzeSelection(
+        string source,
+        LineSpan span,
+        AnalysisTier tier,
+        CancellationToken token = default)
+    {
+        var compilation = CompilationFactory.Create(source, "OhnoAdHoc");
+        var tree = CompilationFactory.SourceTree(compilation);
+        var model = compilation.GetSemanticModel(tree);
+        return AnalyzeSelection(model, tree, span, tier, token);
+    }
+
+    public FileAnalysis AnalyzeSelection(
+        SemanticModel model,
+        SyntaxTree tree,
+        LineSpan span,
+        AnalysisTier tier,
+        CancellationToken token)
+    {
+        token.ThrowIfCancellationRequested();
+        var method = SelectionFragment.EnclosingMethod(model, tree, span);
+        if (method is null)
+        {
+            var warning = new AnalysisWarning(
+                "Select a statement or loop inside a method.", span);
+            return new FileAnalysis([], [warning]);
+        }
+
+        var result = _methods.AnalyzeSelection(method, model, span, tier);
+        var range = result.Evidence.Span ?? span;
+        return new FileAnalysis(
+            [new AnalyzedFunction(method, result, range, span, true)],
+            BindWarnings.For(model));
     }
 
     private static bool TryGetMethod(

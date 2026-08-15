@@ -91,13 +91,33 @@ export interface FunctionComplexity {
   patterns: RecognizedPattern[];
   /** Why confidence is below high; empty when confidence is high. */
   confidenceReasons: string[];
+  /** Up to three named readings of the same function. */
+  approaches: AlgorithmApproach[];
+  /** Empty unless more than one approach is present. */
+  selectionHint: string;
   tier: AnalysisTier;
+}
+
+export type ApproachRole =
+  | 'dominant'
+  | 'nested'
+  | 'sequential'
+  | 'alternative';
+
+export interface AlgorithmApproach {
+  id: string;
+  name: string;
+  summary: string;
+  role: ApproachRole;
+  timeHint?: string;
 }
 
 export interface RecognizedPattern {
   id: string;
   label: string;
   reason: string;
+  effect?: 'annotate' | 'unknown' | 'range';
+  range?: LineRange;
 }
 
 export interface AnalyzeRequest {
@@ -106,6 +126,8 @@ export interface AnalyzeRequest {
   text: string;
   version: number;
   tier: AnalysisTier;
+  /** When set, analyze this span as a synthetic method body. */
+  selection?: LineRange;
 }
 
 export interface AnalyzeResponse {

@@ -33,10 +33,29 @@ const fn: FunctionComplexity = {
   explanation: '',
   patterns: [],
   confidenceReasons: [],
+  approaches: [],
+  selectionHint: '',
   tier: 'fast',
 };
 
 describe('buildMarkdown', () => {
+  it('includes approaches when present', () => {
+    const md = buildMarkdown({
+      ...fn,
+      approaches: [{
+        id: 'binary-search',
+        name: 'Binary search',
+        summary: 'Exclusive mid-split',
+        role: 'dominant',
+        timeHint: 'O(log n)',
+      }],
+      selectionHint: 'Select a smaller method.',
+    }, Uri.parse('file:///a.cs') as never);
+    expect(md.value).toContain('Approaches');
+    expect(md.value).toContain('Binary search');
+    expect(md.value).toContain('Select a smaller method.');
+  });
+
   it('includes derivation, warnings, and command links', () => {
     const md = buildMarkdown(fn, Uri.parse('file:///a.cs') as never);
     expect(md.isTrusted).toBe(true);

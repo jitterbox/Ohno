@@ -30,6 +30,7 @@ export class CSharpAnalyzer implements IComplexityAnalyzer {
       text: request.text,
       version: request.version,
       tier: request.tier,
+      selection: request.selection,
     };
     return request.tier === 'deep'
       ? this.client.analyzeDeep(payload, token)

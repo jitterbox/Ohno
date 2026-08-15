@@ -28,6 +28,8 @@ const fn: FunctionComplexity = {
   explanation: 'Linearithmic time',
   patterns: [],
   confidenceReasons: [],
+  approaches: [],
+  selectionHint: '',
   tier: 'fast',
 };
 

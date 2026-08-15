@@ -29,6 +29,8 @@ const base: FunctionComplexity = {
   explanation: 'Linearithmic time',
   patterns: [],
   confidenceReasons: [],
+  approaches: [],
+  selectionHint: '',
   tier: 'fast',
 };
 

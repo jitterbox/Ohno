@@ -25,6 +25,19 @@ export function buildMarkdown(
   if (fn.explanation) {
     md.appendMarkdown(`*${fn.explanation}*\n\n`);
   }
+  if (fn.approaches?.length) {
+    md.appendMarkdown(`**Approaches**\n\n`);
+    for (const a of fn.approaches) {
+      const hint = a.timeHint ? ` — \`${a.timeHint}\`` : '';
+      md.appendMarkdown(
+        `- **${a.name}** (${a.role})${hint}: ${a.summary}\n`,
+      );
+    }
+    md.appendMarkdown('\n');
+    if (fn.selectionHint) {
+      md.appendMarkdown(`*${fn.selectionHint}*\n\n`);
+    }
+  }
   if (fn.patterns?.length) {
     md.appendMarkdown(`**Patterns**\n\n`);
     for (const p of fn.patterns) {

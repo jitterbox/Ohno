@@ -86,7 +86,22 @@ internal static class ConfidenceAssessor
             or "numeric-countdown"
             or "lock-wait"
             or "iterator-yield"
-            or "string-concat-loop";
+            or "string-concat-loop"
+            or "await-opaque"
+            or "stream-io"
+            or "queryable"
+            or "thread-block"
+            or "interface-dispatch"
+            or "delegate-invoke"
+            or "bounded-recursion"
+            or "binary-search"
+            or "memoized-recursion"
+            or "subset-generation"
+            or "combinatorial-generation"
+            or "graph-traversal"
+            or "branching-recursion"
+            or "linear-recurrence"
+            or "divide-and-conquer";
 
     private static bool ContainsUnknown(ComplexityExpression expression) =>
         expression is UnknownExpression
