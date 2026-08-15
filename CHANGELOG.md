@@ -1,0 +1,159 @@
+# Changelog
+
+All notable changes to Ohno are recorded here. The format follows
+[Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and versions
+follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
+
+Entries for 0.1.0 through 0.1.2 were reconstructed from the commit
+history after the fact — this file did not exist while those releases
+were made, so they summarize what shipped rather than what was written
+down at the time.
+
+## [0.1.3] — 2026-08-15
+
+The theme is honesty about what is and is not known: constant time now
+has to be established rather than assumed, and the analyzer stops
+guessing in the places it used to.
+
+### Changed
+
+- **O(1) is never a fallback.** An unresolved executable operation is
+  reported as `C(name)` at Low confidence, naming the member with no
+  cost summary. Constant time requires a catalog entry or an entry in
+  the new `ConstantTimePrimitives` allowlist, which is keyed by
+  containing type rather than member name — `int.GetHashCode()` is
+  Θ(1) and `string.GetHashCode()` is Θ(length). The rule covers calls,
+  constructors, metadata property reads, and bodyless method symbols.
+  Previously any `System.*` member whose containing type was not itself
+  a collection was costed as free, so `OrderBy(keySelector, comparer)`,
+  `Sum(selector)`, `Reverse`, `MinBy`, and `File.ReadAllLines` all
+  reported O(1) — a sort could disappear from the headline.
+- **Toolchain moved to .NET 10.** All projects target `net10.0`, CI
+  declares `10.0.x`, and `src/analyzer/global.json` pins the SDK. The
+  analyzer solution is `Ohno.Complexity.slnx`, which the .NET 8 SDK
+  cannot parse; CI passed only because hosted runners carry newer SDKs
+  than the workflow declared. The Roslyn package reference is
+  unchanged — 5.6.0 already ships `net10.0` assets.
+- `SlidingWindow` and `ComboWindowAndUnique` report `O(k + n)` rather
+  than `O(n)`. `new Queue<int>(k)` reserves k slots, and k is an
+  independent dimension; the old result assumed k ≤ n.
+- Insertion-sort-shaped loops report `O(n²)`. The amortized-pointer
+  rule holds only while the inner counter keeps its position between
+  outer iterations; a counter re-seeded inside the outer body (`j = i - 1`)
+  breaks the argument. Two-pointer scans are unaffected.
+- A literal loop ceiling on a constant-stepping counter is a fixed
+  iteration count, so `for (j = 0; j < 8; j++)` inside a loop over n is
+  O(n) rather than O(n²). A literal ceiling on a variable that halves
+  stays logarithmic.
+- Dropped the blanket *"Worst-case analysis used for branches."*
+  warning. Taking the worst branch is how the model is defined, not a
+  caveat about a particular result.
+
+### Added
+
+- **BCL catalog coverage** for the surface that made the old O(1)
+  fallback load-bearing: `System.String` members, array and span
+  helpers, `System.Collections.Frozen`, `SearchValues`, capacity
+  constructors, the missing LINQ overload arities, and the .NET 9
+  `Order` / `OrderDescending` / `CountBy` / `AggregateBy` operators.
+- **Two-source sizing.** `a.Concat(b)` is |a| + |b|; folding the second
+  source into the receiver would collapse an independent dimension.
+  Static helpers take their size from the first non-literal collection
+  argument, so `string.Join(", ", names)` is no longer sized by its
+  separator.
+- **Accessors, indexers, and operators are analyzed** and appear in the
+  Complexity view, named as a reader expects (`Total.get`,
+  `this[].get`). An expensive getter is one of the easiest places for
+  an O(n) to hide. Auto-implemented accessors have no body and produce
+  no result.
+- `ohno.annotations.accessors` (`nontrivial` | `always` | `off`)
+  controls the inline decoration only; analysis is unconditional.
+- **`.slnx` solutions are discovered and loaded.** `MSBuildWorkspace`
+  has supported the XML solution format since Roslyn 5.0, but the
+  extension only looked for `.sln`, so a migrated repository silently
+  fell back to ad-hoc compilation.
+- **Non-backtracking regex earns a real bound.** A regex built with
+  `RegexOptions.NonBacktracking` — provable at the construction site,
+  on the static overload, or on `[GeneratedRegex]` — is linear in the
+  subject, because that engine never revisits a character. The default
+  backtracking engine stays opaque.
+- Operation-tree depth guard. Generated code can nest far enough to
+  overflow the stack, and the stack belongs to a server process shared
+  by the whole editor session. Past the cap the result is an honest
+  unknown with a reason, never a constant.
+- Cancellation reaches inside a single method, so a superseded
+  analysis stops instead of finishing work nobody is waiting for.
+- `AnalyzerBenchmarkTests`, `BclCatalogTests`, `BoundaryBenchTests`,
+  `MemberSurfaceTests`, `RegexEngineTests`, and `RobustnessTests`.
+  Test count went from 201 to 311 on the analyzer and 44 to 54 on the
+  extension.
+- `docs/RESEARCH-2026-08.md` and `docs/PLAN-2026-08.md` — the audit
+  behind this release and the plan it followed.
+
+### Fixed
+
+- **Selection and document analysis no longer cancel each other.**
+  Both are Fast and both arrive on `ohno/analyze`, and a single shared
+  cancellation slot meant an edit with an active selection had the
+  document request cancel the selection every time. Cancellation is now
+  keyed by request kind.
+- Selection analysis no longer recomputes file-level bind warnings,
+  which forced a full bind of every method body to score a two-line
+  span.
+- Seven duplicated operation walkers collapsed into one shared
+  traversal, and several passes that asked the same sub-tree the same
+  question repeatedly now ask once. `UnboundedWorklist` alone walked
+  its loop body up to seven times.
+
+## [0.1.2] — 2026-08
+
+### Added
+
+- **Approaches.** Up to three named readings of the same function
+  (dominant, nested, sequential, alternative), so a function that
+  combines several algorithms is not flattened to one number.
+- **Selection-scoped analysis.** Selecting a statement or loop
+  re-analyzes that span alone; the panel title becomes
+  `Name (selection)`, with a hint to narrow further when more than one
+  approach remains.
+- `PatternRefiner`, which merges recurrence classifications into the
+  pattern list and softens incidental opacity.
+
+### Changed
+
+- Incidental `await` or `IQueryable` beside a resolved loop is named
+  rather than wiping the local bound. Hard opacity — `dynamic`,
+  reflection, regex, `await foreach` — still reports `O(unknown)`.
+- Deferred in-memory LINQ is distinguished from EF / `IQueryable`.
+
+## [0.1.1] — 2026-08
+
+### Added
+
+- Bounding suggestions, confidence reasons, and the derivation tree in
+  the Complexity view.
+- Project binding: a loaded `.sln` or the `.csproj` found by walking up
+  from the file, with entry-point analysis for top-level statements.
+
+### Changed
+
+- Inline annotation rendering, so a long bound stays readable.
+- The Oʰ(Nᵒ) wordmark and a vector activity-bar icon.
+
+## [0.1.0] — 2026-08
+
+### Added
+
+- Initial release: a VS Code extension estimating Big-O time and
+  auxiliary-space complexity for C# functions, backed by a bundled
+  Roslyn analyzer server over JSON-RPC.
+- Symbolic complexity expressions with Big-O simplification, a BCL and
+  LINQ cost catalog, recurrence classification, and hazard patterns.
+- Inline end-of-line annotations, the Complexity activity-bar view, and
+  on-demand deep analysis.
+- A GitHub Actions workflow packaging per-platform VSIX artifacts.
+
+[0.1.3]: https://github.com/jitterbox/Ohno/releases/tag/v0.1.3
+[0.1.2]: https://github.com/jitterbox/Ohno/releases/tag/v0.1.2
+[0.1.1]: https://github.com/jitterbox/Ohno/releases/tag/v0.1.1
+[0.1.0]: https://github.com/jitterbox/Ohno/releases/tag/v0.1.0

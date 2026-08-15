@@ -23,7 +23,7 @@ public sealed class AnalyzerService
 
     [JsonRpcMethod("initialize")]
     public InitializeResult Initialize() =>
-        new("Ohno.ComplexityAnalyzer", "0.1.2");
+        new("Ohno.ComplexityAnalyzer", "0.1.3");
 
     [JsonRpcMethod(
         "ohno/setSolutionContext",

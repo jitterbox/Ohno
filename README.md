@@ -186,14 +186,14 @@ dotnet publish src/analyzer/ComplexityAnalyzer.Server \
   -c Release -r linux-x64 --self-contained \
   -o src/extension/server
 cd src/extension && npm install && npx @vscode/vsce package --target linux-x64
-code --install-extension ohno-linux-x64-0.1.2.vsix --force
+code --install-extension ohno-linux-x64-0.1.3.vsix --force
 
 # Windows (from PowerShell or cmd)
 dotnet publish src/analyzer/ComplexityAnalyzer.Server `
   -c Release -r win-x64 --self-contained `
   -o src/extension/server
 cd src/extension && npm install && npx @vscode/vsce package --target win-x64
-code --install-extension ohno-win-x64-0.1.2.vsix --force
+code --install-extension ohno-win-x64-0.1.3.vsix --force
 ```
 
 Use `osx-arm64` the same way. Reload the window after install. The
@@ -228,6 +228,8 @@ Fixtures used by the test suite:
 | `samples/roslyn/RoslynSpaceComplexityPatterns.cs` | Peak-space idioms |
 | `samples/roslyn/RoslynSpaceComplexityCombinations.cs` | Combined time + space |
 
+Release history is in [CHANGELOG.md](CHANGELOG.md).
+
 See [docs/DEVELOPER.md](docs/DEVELOPER.md) for the theoretical model,
 how Ohno differs from Microsoft code metrics, and how to extend the
 catalog and pattern detectors.
@@ -250,7 +252,7 @@ instead of a silent O(1).
 
 ## Status
 
-v0.1.2. C# is the only selectable language.
+v0.1.3. C# is the only selectable language.
 Estimates are for local computational work as written; they are not a
 substitute for measurement on production data.
 
