@@ -104,6 +104,11 @@ guessing in the places it used to.
   traversal, and several passes that asked the same sub-tree the same
   question repeatedly now ask once. `UnboundedWorklist` alone walked
   its loop body up to seven times.
+- Disposing the analyzer client no longer leaves an unhandled promise
+  rejection. Announcing shutdown races the pipe closing — expected,
+  since the process is killed either way — but `sendNotification`
+  returns a promise, so the synchronous `catch` never saw the `EPIPE`
+  it rejected with.
 
 ## [0.1.2] — 2026-08
 
