@@ -114,6 +114,8 @@ jobs:
             awk -v v="$VERSION" '
               $0 ~ "^## \\[" v "\\]" { found = 1; next }
               found && /^## \[/ { exit }
+              # Stop at the link-reference block that closes the file.
+              found && /^\[[0-9]/ { exit }
               found { print }
             ' CHANGELOG.md
             echo 'RELEASE_NOTES_EOF'
