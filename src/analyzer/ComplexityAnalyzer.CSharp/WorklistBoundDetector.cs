@@ -132,7 +132,7 @@ internal static class WorklistBoundDetector
     private static ComplexityExpression? VisitSize(
         IOperation body, AnalysisState state)
     {
-        foreach (var op in Walk(body))
+        foreach (var op in OperationTree.SelfAndDescendants(body))
         {
             var target = WrittenTarget(op);
             if (target is not IArrayElementReferenceOperation element)
@@ -160,7 +160,7 @@ internal static class WorklistBoundDetector
     private static ComplexityExpression? EdgeSize(
         IOperation body, AnalysisState state)
     {
-        foreach (var loop in Walk(body).OfType<IForEachLoopOperation>())
+        foreach (var loop in OperationTree.SelfAndDescendants(body).OfType<IForEachLoopOperation>())
         {
             var owner = ArrayOwner(loop.Collection);
             if (owner is null) continue;
@@ -182,7 +182,7 @@ internal static class WorklistBoundDetector
     private static ComplexityExpression? SeedSize(
         IOperation body, ISymbol work, AnalysisState state)
     {
-        foreach (var loop in Walk(body).OfType<IForEachLoopOperation>())
+        foreach (var loop in OperationTree.SelfAndDescendants(body).OfType<IForEachLoopOperation>())
         {
             if (!GrowsHeads(loop.Body, work)) continue;
             return SizeResolver.Resolve(loop.Collection, state);
@@ -256,11 +256,11 @@ internal static class WorklistBoundDetector
     }
 
     private static int CountShrinks(IOperation body) =>
-        Walk(body).OfType<IInvocationOperation>()
+        OperationTree.SelfAndDescendants(body).OfType<IInvocationOperation>()
             .Count(c => IsShrink(c.TargetMethod.Name));
 
     private static int CountGrows(IOperation body) =>
-        Walk(body).OfType<IInvocationOperation>()
+        OperationTree.SelfAndDescendants(body).OfType<IInvocationOperation>()
             .Count(c => IsGrow(c.TargetMethod.Name));
 
     private static bool IsSuccessor(IOperation? value)
@@ -286,21 +286,12 @@ internal static class WorklistBoundDetector
 
     private static IEnumerable<IInvocationOperation> Calls(
         IOperation body, ISymbol work) =>
-        Walk(body).OfType<IInvocationOperation>().Where(c =>
+        OperationTree.SelfAndDescendants(body).OfType<IInvocationOperation>().Where(c =>
             SymbolEqualityComparer.Default.Equals(
                 SizeResolver.TargetSymbol(c.Instance), work));
 
     private static IEnumerable<IWhileLoopOperation> Loops(
         IOperation root) =>
-        Walk(root).OfType<IWhileLoopOperation>();
+        OperationTree.SelfAndDescendants(root).OfType<IWhileLoopOperation>();
 
-    private static IEnumerable<IOperation> Walk(IOperation root)
-    {
-        yield return root;
-        foreach (var child in root.ChildOperations)
-        {
-            foreach (var nested in Walk(child))
-                yield return nested;
-        }
-    }
 }

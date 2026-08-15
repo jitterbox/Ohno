@@ -30,26 +30,127 @@ internal static class PatternRecognizer
     {
         if (body is null) return [];
         var hits = new List<RecognizedPattern>();
-        Walk(method, body, inLoop: false, hits);
+        var facts = new Dictionary<IOperation, LoopFacts>();
+        Collect(method, body, inLoop: false, hits, facts);
         return hits.DistinctBy(h => h.Id).ToArray();
     }
 
-    private static void Walk(
+    private static void Collect(
         IMethodSymbol method,
         IOperation operation,
         bool inLoop,
-        List<RecognizedPattern> hits)
+        List<RecognizedPattern> hits,
+        Dictionary<IOperation, LoopFacts> facts)
     {
-        var hit = Match(method, operation, inLoop);
+        var hit = Match(method, operation, inLoop, facts);
         if (hit is not null) hits.Add(hit);
         var nested = inLoop || operation is IForLoopOperation
             or IForEachLoopOperation or IWhileLoopOperation;
         foreach (var child in operation.ChildOperations)
-            Walk(method, child, nested, hits);
+            Collect(method, child, nested, hits, facts);
+    }
+
+    /// <summary>
+    /// Everything the loop detectors ask about a body, gathered in one
+    /// pass and cached.
+    /// </summary>
+    /// <remarks>
+    /// <c>UnboundedWorklist</c> alone used to walk the same body up to
+    /// seven times (grow, shrink, successor-grow, visit-write, and two
+    /// more inside the net-decrease count), and the outer traversal
+    /// reaches every nested loop, so the walks compounded with nesting.
+    /// </remarks>
+    private sealed record LoopFacts
+    {
+        public HashSet<ISymbol> Grows { get; } =
+            new(SymbolEqualityComparer.Default);
+
+        public HashSet<ISymbol> Shrinks { get; } =
+            new(SymbolEqualityComparer.Default);
+
+        public HashSet<ISymbol> SuccessorGrows { get; } =
+            new(SymbolEqualityComparer.Default);
+
+        public bool HasVisitWrite { get; set; }
+
+        public bool HasMultiplyOrDivide { get; set; }
+
+        public bool WalksNext { get; set; }
+
+        public int GrowCount { get; set; }
+
+        public int ShrinkCount { get; set; }
+    }
+
+    private static LoopFacts FactsOf(
+        IOperation body, Dictionary<IOperation, LoopFacts> cache)
+    {
+        if (cache.TryGetValue(body, out var cached)) return cached;
+
+        var facts = new LoopFacts();
+        foreach (var op in OperationTree.SelfAndDescendants(body))
+        {
+            switch (op)
+            {
+                case IInvocationOperation call:
+                    Record(call, facts);
+                    break;
+                case IBinaryOperation
+                {
+                    OperatorKind: BinaryOperatorKind.Multiply
+                        or BinaryOperatorKind.Divide
+                }:
+                    facts.HasMultiplyOrDivide = true;
+                    break;
+            }
+
+            if (op is ISimpleAssignmentOperation assign
+                && SizeResolver.Unwrap(assign.Value)
+                    is IFieldReferenceOperation or IPropertyReferenceOperation)
+            {
+                facts.WalksNext = true;
+            }
+
+            if (WrittenTarget(op) is IArrayElementReferenceOperation)
+                facts.HasVisitWrite = true;
+        }
+
+        cache[body] = facts;
+        return facts;
+    }
+
+    private static void Record(IInvocationOperation call, LoopFacts facts)
+    {
+        var name = call.TargetMethod.Name;
+        var grows = name is "Enqueue" or "Push" or "Add";
+        var shrinks = name is "Dequeue" or "Pop"
+            or "TryDequeue" or "TryPop";
+        if (!grows && !shrinks) return;
+
+        // The net-decrease check counts every grow and shrink in the
+        // body, regardless of which collection it targets.
+        if (grows) facts.GrowCount++;
+        if (shrinks) facts.ShrinkCount++;
+
+        var target = SizeResolver.TargetSymbol(call.Instance);
+        if (target is null) return;
+        if (shrinks) facts.Shrinks.Add(target);
+        if (!grows) return;
+
+        facts.Grows.Add(target);
+        if (name is "Enqueue" or "Push"
+            && call.Arguments.Length > 0
+            && IsNextField(call.Arguments[0].Value))
+        {
+            facts.SuccessorGrows.Add(target);
+        }
     }
 
     private static RecognizedPattern? Match(
-        IMethodSymbol method, IOperation operation, bool inLoop) =>
+        IMethodSymbol method,
+        IOperation operation,
+        bool inLoop,
+        Dictionary<IOperation, LoopFacts> facts) =>
         Dynamic(operation)
         ?? Reflection(operation)
         ?? Interface(operation)
@@ -61,11 +162,11 @@ internal static class PatternRecognizer
         ?? Lock(operation)
         ?? Yield(operation)
         ?? StringConcat(operation, inLoop)
-        ?? Collatz(operation)
-        ?? NullWalk(operation)
+        ?? Collatz(operation, facts)
+        ?? NullWalk(operation, facts)
         ?? Countdown(operation)
         ?? Cache(operation)
-        ?? UnboundedWorklist(operation)
+        ?? UnboundedWorklist(operation, facts)
         ?? BranchingRecursion(method, operation);
 
     private static RecognizedPattern? Dynamic(IOperation operation) =>
@@ -249,7 +350,9 @@ internal static class PatternRecognizer
             : null;
     }
 
-    private static RecognizedPattern? Collatz(IOperation operation)
+    private static RecognizedPattern? Collatz(
+        IOperation operation,
+        Dictionary<IOperation, LoopFacts> facts)
     {
         if (operation is not IWhileLoopOperation loop) return null;
         var cond = SizeResolver.Unwrap(loop.Condition);
@@ -262,7 +365,7 @@ internal static class PatternRecognizer
             return null;
         }
 
-        if (!AssignmentGrows(loop.Body)) return null;
+        if (!FactsOf(loop.Body, facts).HasMultiplyOrDivide) return null;
         return Unknown(
             "unproven-loop",
             "Unproven loop bound",
@@ -270,7 +373,9 @@ internal static class PatternRecognizer
             operation);
     }
 
-    private static RecognizedPattern? NullWalk(IOperation operation)
+    private static RecognizedPattern? NullWalk(
+        IOperation operation,
+        Dictionary<IOperation, LoopFacts> facts)
     {
         if (operation is not IWhileLoopOperation loop) return null;
         var cond = SizeResolver.Unwrap(loop.Condition);
@@ -280,7 +385,7 @@ internal static class PatternRecognizer
                 OperatorKind: BinaryOperatorKind.ConditionalAnd
                     or BinaryOperatorKind.ConditionalOr
             };
-        if (!pattern || !WalksNext(loop)) return null;
+        if (!pattern || !FactsOf(loop.Body, facts).WalksNext) return null;
         return Annotate(
             "null-terminated-walk",
             "Null-terminated walk",
@@ -328,16 +433,18 @@ internal static class PatternRecognizer
     }
 
     private static RecognizedPattern? UnboundedWorklist(
-        IOperation operation)
+        IOperation operation,
+        Dictionary<IOperation, LoopFacts> cache)
     {
         if (operation is not IWhileLoopOperation loop) return null;
         if (!IsCountCondition(loop.Condition, out var work))
             return null;
-        if (!HasGrow(loop.Body, work) || !HasShrink(loop.Body, work))
+        var facts = FactsOf(loop.Body, cache);
+        if (!facts.Grows.Contains(work) || !facts.Shrinks.Contains(work))
             return null;
-        if (HasVisitWrite(loop.Body)) return null;
-        if (HasSuccessorGrow(loop.Body, work)) return null;
-        if (IsNetDecrease(loop)) return null;
+        if (facts.HasVisitWrite) return null;
+        if (facts.SuccessorGrows.Contains(work)) return null;
+        if (IsNetDecrease(loop, facts)) return null;
         return Unknown(
             "unbounded-worklist",
             "Unbounded worklist",
@@ -364,27 +471,8 @@ internal static class PatternRecognizer
         return true;
     }
 
-    private static bool HasGrow(IOperation body, ISymbol work) =>
-        WalkAll(body).OfType<IInvocationOperation>().Any(c =>
-            c.TargetMethod.Name is "Enqueue" or "Push" or "Add"
-            && SymbolEqualityComparer.Default.Equals(
-                SizeResolver.TargetSymbol(c.Instance), work));
 
-    private static bool HasShrink(IOperation body, ISymbol work) =>
-        WalkAll(body).OfType<IInvocationOperation>().Any(c =>
-            c.TargetMethod.Name is "Dequeue" or "Pop"
-                or "TryDequeue" or "TryPop"
-            && SymbolEqualityComparer.Default.Equals(
-                SizeResolver.TargetSymbol(c.Instance), work));
 
-    private static bool HasSuccessorGrow(
-        IOperation body, ISymbol work) =>
-        WalkAll(body).OfType<IInvocationOperation>().Any(c =>
-            c.TargetMethod.Name is "Enqueue" or "Push"
-            && c.Arguments.Length > 0
-            && IsNextField(c.Arguments[0].Value)
-            && SymbolEqualityComparer.Default.Equals(
-                SizeResolver.TargetSymbol(c.Instance), work));
 
     private static bool IsNextField(IOperation? value)
     {
@@ -399,7 +487,8 @@ internal static class PatternRecognizer
             && name.Equals("next", StringComparison.OrdinalIgnoreCase);
     }
 
-    private static bool IsNetDecrease(IWhileLoopOperation loop)
+    private static bool IsNetDecrease(
+        IWhileLoopOperation loop, LoopFacts facts)
     {
         if (SizeResolver.Unwrap(loop.Condition)
             is not IBinaryOperation binary)
@@ -414,20 +503,9 @@ internal static class PatternRecognizer
             return false;
         }
 
-        var shrinks = WalkAll(loop.Body)
-            .OfType<IInvocationOperation>()
-            .Count(c => c.TargetMethod.Name is "Dequeue" or "Pop"
-                or "TryDequeue" or "TryPop");
-        var grows = WalkAll(loop.Body)
-            .OfType<IInvocationOperation>()
-            .Count(c => c.TargetMethod.Name is "Enqueue" or "Push"
-                or "Add");
-        return shrinks > grows;
+        return facts.ShrinkCount > facts.GrowCount;
     }
 
-    private static bool HasVisitWrite(IOperation body) =>
-        WalkAll(body).Any(op =>
-            WrittenTarget(op) is IArrayElementReferenceOperation);
 
     private static IOperation? WrittenTarget(IOperation operation) =>
         operation switch
@@ -475,7 +553,7 @@ internal static class PatternRecognizer
 
     private static int CountRecursive(
         IMethodSymbol method, IOperation body) =>
-        WalkAll(body).OfType<IInvocationOperation>()
+        OperationTree.SelfAndDescendants(body).OfType<IInvocationOperation>()
             .Count(c => SymbolEqualityComparer.Default.Equals(
                 c.TargetMethod.OriginalDefinition,
                 method.OriginalDefinition));
@@ -510,10 +588,6 @@ internal static class PatternRecognizer
             || SymbolKeys.TypeName(type) == "System.Numerics.BigInteger";
     }
 
-    private static bool AssignmentGrows(IOperation body) =>
-        WalkAll(body).OfType<IBinaryOperation>()
-            .Any(b => b.OperatorKind is BinaryOperatorKind.Multiply
-                or BinaryOperatorKind.Divide);
 
     private static bool IsLibraryInterface(ITypeSymbol type)
     {
@@ -522,21 +596,5 @@ internal static class PatternRecognizer
             || ns.StartsWith("System.Linq", StringComparison.Ordinal);
     }
 
-    private static bool WalksNext(IWhileLoopOperation loop)
-    {
-        return WalkAll(loop.Body).OfType<ISimpleAssignmentOperation>()
-            .Any(a => SizeResolver.Unwrap(a.Value)
-                is IFieldReferenceOperation
-                    or IPropertyReferenceOperation);
-    }
 
-    private static IEnumerable<IOperation> WalkAll(IOperation root)
-    {
-        yield return root;
-        foreach (var child in root.ChildOperations)
-        {
-            foreach (var nested in WalkAll(child))
-                yield return nested;
-        }
-    }
 }

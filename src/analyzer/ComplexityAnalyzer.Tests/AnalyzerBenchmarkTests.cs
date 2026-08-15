@@ -24,8 +24,15 @@ public class AnalyzerBenchmarkTests
     /// <summary>Generous ceiling for one full pass over a fixture.</summary>
     private const int BudgetMs = 6000;
 
-    /// <summary>Passes used to measure the warm (post-JIT) cost.</summary>
-    private const int WarmPasses = 3;
+    /// <summary>
+    /// Passes used to measure the warm (post-JIT) cost. The minimum of
+    /// several passes is the estimator: on a shared or throttled
+    /// machine the same fixture has been observed to vary by 2x run to
+    /// run, so a single sample cannot support a fine-grained claim.
+    /// Treat the printed numbers as indicative and the assertion as the
+    /// only contract.
+    /// </summary>
+    private const int WarmPasses = 7;
 
     private readonly ITestOutputHelper _output;
 

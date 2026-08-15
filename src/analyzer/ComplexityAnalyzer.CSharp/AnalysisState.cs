@@ -33,6 +33,18 @@ internal sealed class AnalysisState
 
     public HashSet<SyntaxNode> UnreachableSyntax { get; } = [];
 
+    /// <summary>
+    /// Structural facts about a loop body, cached per operation.
+    /// </summary>
+    /// <remarks>
+    /// Only shape lives here — never a resolved bound. The cardinality
+    /// pass and the cost walk both ask for a loop's bound, and sizes
+    /// are still being learned in between, so caching the bound itself
+    /// would freeze the earlier, less informed answer. The shape does
+    /// not depend on <see cref="Sizes"/>, so it is safe to reuse.
+    /// </remarks>
+    public Dictionary<IOperation, LoopShape> LoopShapes { get; } = new();
+
     public HashSet<ISymbol> FlattenedAdj { get; } =
         new(SymbolEqualityComparer.Default);
 
@@ -115,6 +127,20 @@ internal sealed class AnalysisState
         return created;
     }
 }
+
+/// <summary>
+/// Shape facts a loop body can be asked for, all gathered in one pass
+/// instead of one full sub-tree walk per question.
+/// </summary>
+/// <param name="Halves">A <c>/= 2</c>, <c>&gt;&gt;= 1</c>, or <c>x = x / 2</c> update.</param>
+/// <param name="MidSplits">A division by two, as binary search does.</param>
+/// <param name="ShrinksBound">An assignment moving a local by ±.</param>
+/// <param name="VisitedArray">The array a visit mark is written into.</param>
+internal sealed record LoopShape(
+    bool Halves,
+    bool MidSplits,
+    bool ShrinksBound,
+    ISymbol? VisitedArray);
 
 internal sealed class Cardinality
 {

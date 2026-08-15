@@ -95,9 +95,13 @@ public sealed class CSharpFileAnalyzer
 
         var result = _methods.AnalyzeSelection(method, model, span, tier);
         var range = result.Evidence.Span ?? span;
+        // File-level bind warnings are a property of the document, not
+        // of the span, and the document pass already produced them.
+        // Recomputing here would force a full bind of every method body
+        // in the file just to score a two-line selection.
         return new FileAnalysis(
             [new AnalyzedFunction(method, result, range, span, true)],
-            BindWarnings.For(model));
+            []);
     }
 
     private static bool TryGetMethod(

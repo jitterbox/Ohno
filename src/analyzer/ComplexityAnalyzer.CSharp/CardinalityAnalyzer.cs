@@ -67,10 +67,14 @@ internal static class CardinalityAnalyzer
         SemanticModel model,
         AnalysisState state)
     {
+        // One pass over the tree, not one pass per written symbol.
+        var incremented = new HashSet<ISymbol>(
+            SymbolEqualityComparer.Default);
         foreach (var inc in Increments(body))
         {
-            if (inc is not null)
-                state.LoopIndices.Add(inc);
+            if (inc is null) continue;
+            incremented.Add(inc);
+            state.LoopIndices.Add(inc);
         }
 
         var syntax = body.Syntax;
@@ -87,14 +91,14 @@ internal static class CardinalityAnalyzer
         {
             if (!IsIntegral(written)) continue;
             if (state.LoopIndices.Contains(written)) continue;
-            if (IsIncremented(body, written))
+            if (incremented.Contains(written))
                 state.LoopIndices.Add(written);
         }
     }
 
     private static IEnumerable<ISymbol?> Increments(IOperation root)
     {
-        foreach (var op in Walk(root))
+        foreach (var op in OperationTree.SelfAndDescendants(root))
         {
             if (op is IForLoopOperation loop)
             {
@@ -123,10 +127,6 @@ internal static class CardinalityAnalyzer
         };
     }
 
-    private static bool IsIncremented(
-        IOperation body, ISymbol symbol) =>
-        Increments(body).Any(s =>
-            SymbolEqualityComparer.Default.Equals(s, symbol));
 
     private static bool IsIntegral(ISymbol symbol)
     {
@@ -342,13 +342,4 @@ internal static class CardinalityAnalyzer
         ComplexityExpression left, ComplexityExpression right) =>
         CostComposer.Peak(new[] { left, right });
 
-    private static IEnumerable<IOperation> Walk(IOperation root)
-    {
-        yield return root;
-        foreach (var child in root.ChildOperations)
-        {
-            foreach (var nested in Walk(child))
-                yield return nested;
-        }
-    }
 }

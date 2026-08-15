@@ -216,7 +216,7 @@ frozen-collection, and LINQ-overload surface, and
 everyday APIs rather than only the ones already known — the blind spot
 this finding is about.
 
-### 3.3 [S2] Analyzer-internal algorithmic cost
+### 3.3 [S2] Analyzer-internal algorithmic cost — **fixed (PLAN Phase 2)**
 
 The tool that reports Big-O has several avoidable super-linear passes.
 Let *N* = operations in a method, *D* = block nesting depth.
@@ -234,10 +234,23 @@ Let *N* = operations in a method, *D* = block nesting depth.
 None of these is fatal on a 30-line method; together they are why a
 large file feels heavy on the 250 ms debounce path.
 
+**Fixed** except the last two rows. The seven walkers are now one
+shared `OperationTree`; the increment scan, loop shapes, pattern loop
+facts, and recurrence classifiers each walk once. `Simplify` and
+`EvidencePruner` placement was left alone deliberately — it is the one
+change that could alter output, and the benchmark on this machine is
+too noisy to show whether it would help (PLAN "Why 2.6 is deferred").
+
 ### 3.4 [S2] Measured cost of a keystroke pass
 
 Measured, not assumed — `AnalyzerBenchmarkTests` plus a throwaway
-phase breakdown, .NET 10 Release, warm (best of 3):
+phase breakdown, .NET 10 Release, warm (best of 3).
+
+**Read these as indicative, not precise.** Three identical runs of the
+same fixture later produced 116 ms, 139 ms, and 238 ms on this
+machine. The shape of the split (bind vs walk) is robust; individual
+millisecond figures are not, and no optimization should be justified
+by them alone.
 
 | Fixture | Lines | Functions | Warm full pass | Per function |
 |---|---|---|---|---|
