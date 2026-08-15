@@ -31,13 +31,23 @@ export function projectNear(filePath: string): string | undefined {
   let dir = path.dirname(filePath);
   let csproj: string | undefined;
   while (true) {
-    const sln = firstWithExt(dir, '.sln');
-    if (sln) return sln;
+    const solution = firstSolution(dir);
+    if (solution) return solution;
     csproj ??= firstWithExt(dir, '.csproj');
     const parent = path.dirname(dir);
     if (parent === dir) return csproj;
     dir = parent;
   }
+}
+
+/**
+ * A solution in this directory, in either format. `.slnx` is the XML
+ * solution format, which MSBuildWorkspace has loaded since Roslyn 5.0
+ * — looking only for `.sln` meant a repo that had migrated (including
+ * this one) silently fell back to ad-hoc compilation.
+ */
+function firstSolution(dir: string): string | undefined {
+  return firstWithExt(dir, '.sln') ?? firstWithExt(dir, '.slnx');
 }
 
 function firstWithExt(dir: string, ext: string): string | undefined {
@@ -60,5 +70,6 @@ function filePathOf(uri: string): string {
 }
 
 function isSln(value?: string): boolean {
-  return !!value?.toLowerCase().endsWith('.sln');
+  const lower = value?.toLowerCase();
+  return !!lower && (lower.endsWith('.sln') || lower.endsWith('.slnx'));
 }

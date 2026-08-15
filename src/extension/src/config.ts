@@ -7,6 +7,14 @@ import {
 export type AnalysisTier = 'fast' | 'deep';
 export type AnnotationMode = 'inline' | 'codelens' | 'off';
 
+/**
+ * How much of the accessor/operator surface gets an inline annotation.
+ * They are always analyzed and always in the panel; this only controls
+ * the editor decoration, so a class of plain properties does not fill
+ * the margin with `O(1)`.
+ */
+export type AccessorAnnotations = 'nontrivial' | 'always' | 'off';
+
 export interface OhnoConfig {
   enabled: boolean;
   languages: Readonly<Record<string, boolean>>;
@@ -16,6 +24,7 @@ export interface OhnoConfig {
   nestingDepth: number;
   showSpace: boolean;
   showConfidence: boolean;
+  accessors: AccessorAnnotations;
   debounceMs: number;
   maxFileSizeKb: number;
   analyzerPath: string;
@@ -33,6 +42,7 @@ export function readConfig(): OhnoConfig {
     nestingDepth: c.get('annotations.nestingDepth', 2),
     showSpace: c.get('annotations.showSpace', true),
     showConfidence: c.get('annotations.showConfidence', true),
+    accessors: c.get('annotations.accessors', 'nontrivial'),
     debounceMs: c.get('performance.debounceMs', 250),
     maxFileSizeKb: c.get('performance.maxFileSizeKb', 500),
     analyzerPath: c.get('csharp.analyzerPath', ''),

@@ -18,7 +18,8 @@ server. TypeScript is not a selectable language in this release.
 
 ## What you see
 
-Inline, at the end of a function signature:
+Inline, at the end of a function signature — and at the end of a
+property accessor, indexer, or operator that costs something:
 
 ```
 Time O(n log k) · Space O(k) · medium
@@ -44,9 +45,9 @@ than one approach remains, a hint asks you to narrow the selection.
 Clear the selection to return to the whole function. Inline
 annotations stay per-function; they do not follow the selection.
 
-Automatic analysis is the **fast** tier: it uses a loaded `.sln`,
-or the `.csproj` found by walking up from the file, when that
-workspace is ready. Otherwise it uses an ad-hoc compilation of the
+Automatic analysis is the **fast** tier: it uses a loaded `.sln` or
+`.slnx`, or the `.csproj` found by walking up from the file, when
+that workspace is ready. Otherwise it uses an ad-hoc compilation of the
 buffer. Deep analysis (`Ohno: Run Deep Analysis`) waits for the
 project graph and records a warning if it has to fall back.
 
@@ -59,11 +60,19 @@ project graph and records a warning if it has to fall back.
 - Not a claim about I/O, locks, or thread scheduling unless a pattern
   explicitly says those are unknown. An incidental `await` or
   `IQueryable` next to a resolved loop is named and does **not**
-  wipe the local bound; `await foreach`, `dynamic`, regex, and
-  similar hard opacity still report `O(unknown)`.
+  wipe the local bound; `await foreach`, `dynamic`, backtracking
+  regex, and similar hard opacity still report `O(unknown)`. A regex
+  built with `RegexOptions.NonBacktracking` is the exception: that
+  engine is guaranteed to scan the input once, so it gets a real
+  linear bound.
 
 When a conclusive bound cannot be justified from the source, Ohno reports
 **O(unknown)** and a reason — it does not invent O(1).
+
+That holds for library calls too. A member Ohno has no cost summary for
+is carried as `C(name)` at Low confidence, naming what is missing —
+never assumed free. Constant time is something Ohno has to know, not
+something it falls back to.
 
 ## Supported languages
 
@@ -95,6 +104,7 @@ TypeScript is not selectable.
 | `ohno.annotations.nestingDepth` | `2` | Nested subtotal depth |
 | `ohno.annotations.showSpace` | `true` | Include auxiliary space |
 | `ohno.annotations.showConfidence` | `true` | Include confidence in the annotation |
+| `ohno.annotations.accessors` | `nontrivial` | Which accessors/operators get an inline annotation: `nontrivial`, `always`, `off` |
 | `ohno.performance.debounceMs` | `250` | Re-analyze delay after edits |
 | `ohno.performance.maxFileSizeKb` | `500` | Skip huge files (`0` = no limit) |
 | `ohno.csharp.analyzerPath` | `""` | Override the bundled Roslyn server |
@@ -176,14 +186,14 @@ dotnet publish src/analyzer/ComplexityAnalyzer.Server \
   -c Release -r linux-x64 --self-contained \
   -o src/extension/server
 cd src/extension && npm install && npx @vscode/vsce package --target linux-x64
-code --install-extension ohno-linux-x64-0.1.2.vsix --force
+code --install-extension ohno-linux-x64-0.1.3.vsix --force
 
 # Windows (from PowerShell or cmd)
 dotnet publish src/analyzer/ComplexityAnalyzer.Server `
   -c Release -r win-x64 --self-contained `
   -o src/extension/server
 cd src/extension && npm install && npx @vscode/vsce package --target win-x64
-code --install-extension ohno-win-x64-0.1.2.vsix --force
+code --install-extension ohno-win-x64-0.1.3.vsix --force
 ```
 
 Use `osx-arm64` the same way. Reload the window after install. The
@@ -191,6 +201,9 @@ bundled server is `ComplexityAnalyzer.Server` on Unix and
 `ComplexityAnalyzer.Server.exe` on Windows.
 
 ## Development
+
+Requires the **.NET 10 SDK** (the analyzer solution is
+`Ohno.Complexity.slnx`) and Node 22.
 
 ```bash
 # Analyzer
@@ -215,6 +228,8 @@ Fixtures used by the test suite:
 | `samples/roslyn/RoslynSpaceComplexityPatterns.cs` | Peak-space idioms |
 | `samples/roslyn/RoslynSpaceComplexityCombinations.cs` | Combined time + space |
 
+Release history is in [CHANGELOG.md](CHANGELOG.md).
+
 See [docs/DEVELOPER.md](docs/DEVELOPER.md) for the theoretical model,
 how Ohno differs from Microsoft code metrics, and how to extend the
 catalog and pattern detectors.
@@ -237,7 +252,7 @@ instead of a silent O(1).
 
 ## Status
 
-v0.1.2. C# is the only selectable language.
+v0.1.3. C# is the only selectable language.
 Estimates are for local computational work as written; they are not a
 substitute for measurement on production data.
 

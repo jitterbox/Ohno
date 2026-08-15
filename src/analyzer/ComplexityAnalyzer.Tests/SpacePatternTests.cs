@@ -24,7 +24,10 @@ public class SpacePatternTests
         { "RepeatedButNotRetained", "O(n²)", "O(n)" },
         { "RepeatedAndRetained", "O(n²)", "O(n²)" },
         { "TopK", "O(n log k)", "O(k)" },
-        { "SlidingWindow", "O(n)", "O(k)" },
+        // new Queue<int>(k) reserves k slots, which is Θ(k) work on top
+        // of the Θ(n) scan. k and n are independent dimensions, so the
+        // sum stands rather than assuming k <= n.
+        { "SlidingWindow", "O(k + n)", "O(k)" },
         { "CountUnique", "O(n)", "O(n)" },
         { "BuildAdjacencyList", "O(m + n)", "O(m + n)" },
         { "BuildAdjacencyMatrix", "O(n²)", "O(n²)" },
@@ -45,7 +48,7 @@ public class SpacePatternTests
     {
         { "ComboMatrixAndLinear", "O(n²)", "O(n²)" },
         { "ComboPeakThenRetain", "O(n²)", "O(n²)" },
-        { "ComboWindowAndUnique", "O(n)", "O(k + n)" },
+        { "ComboWindowAndUnique", "O(k + n)", "O(k + n)" },
         { "ComboBufferAndLinearRecursion", "O(n)", "O(n)" },
     };
 

@@ -71,7 +71,10 @@ by a term that lacks that call.
 Loop bounds come from `Length` / `Count`, a compared integral
 parameter, a recognized log update (`*= 2`, `/= 2`, `>>= 1`), a
 null-terminated walk, a visited-queue frontier, or a refill
-worklist (iterations are **not** `Count`). See
+worklist (iterations are **not** `Count`). A literal ceiling on a
+counter that steps by a constant is a fixed count — `j < 8` does not
+inherit the enclosing loop's bound — but a literal ceiling on a
+variable that halves stays logarithmic. See
 [iteration statements](https://learn.microsoft.com/dotnet/csharp/language-reference/statements/iteration-statements).
 
 `CardinalityAnalyzer` walks
@@ -117,6 +120,14 @@ classifies a handful of source idioms:
 | Loop + recurse + clone of k | O(k C(n, k)) | O(k C(n, k)) |
 | Recurse on neighbors + `bool[]` | O(k n) | O(n) |
 
+The **amortized pointer step** — an inner `while` that only advances a
+pointer costs O(1) per outer iteration — applies only while the
+pointer keeps its position between outer steps. If the counter is
+re-seeded inside the outer body (assigned, or declared there, as
+insertion sort's `j = i - 1` does), the amortization does not hold and
+the inner loop is charged its own bound. Two-pointer scans are
+unaffected: their pointer never rewinds.
+
 Local-function **declarations** are not walked as executable
 statements (`ILocalFunctionOperation`). Cost is paid at the call.
 Otherwise subset/permutation/DFS bodies would be counted twice.
@@ -138,6 +149,14 @@ perm generation, visited graph walk, linear / D&C / branching
 recursion) are merged into the same list. A second integral
 parameter that is not decreased in the recursive calls is a
 **bounded recursion** alternative, not a rewrite of the headline.
+
+Regex is two patterns, not one. The default engine backtracks, so it
+stays hard-opaque. `RegexOptions.NonBacktracking` carries a documented
+linear-time guarantee from the runtime, so `RegexFacts` gives it a real
+bound in the subject's length and the `regex-linear` id annotates
+rather than wipes. The option has to be provable at the construction
+site, on the static overload, or on `[GeneratedRegex]`; a `Regex`
+arriving as a parameter keeps the opaque treatment.
 
 `PatternRefiner` then:
 
@@ -275,6 +294,76 @@ templates bind to the receiver (or LINQ source) size. Deferred LINQ
 is O(1) to build; materializing operators (`ToArray`, `string.Concat`)
 pay the source size. `Repeat` + `Concat` is element length × count.
 
+Two-source operators (`Concat`, `Union`, `Intersect`, `Except`, `Zip`,
+`SequenceEqual`, and the `…By` variants) are sized by **both** sides:
+`a.Concat(b)` is |a| + |b|. Folding the second source into the
+receiver would collapse an independent dimension, which §2.1 forbids.
+
+For a static helper, the size comes from the first non-literal
+collection argument, not from argument zero — otherwise
+`string.Join(", ", names)` would be sized by the separator and report
+constant time.
+
+### 3.5 Limits that keep the server alive
+
+The analyzer is a long-lived stdio process shared by the whole editor
+session, so a crash costs the loaded workspace, not just one result.
+
+`AnalysisState.MaxDepth` (8) bounds how many **methods** deep the walk
+follows calls. `AnalysisState.MaxOperationDepth` (400) bounds how deep
+a **single body** may nest, and guards the cost walk, the pattern walk,
+and the cardinality walk. Generated code — a long chained expression, a
+deeply nested initializer — otherwise recurses far enough to overflow
+the stack.
+
+Past the operation cap the result is `O(unknown)` with a reason, never
+a constant: work that was not examined has not been shown to be free.
+The cap is a floor against machine-written code, not a budget ordinary
+code approaches, and `OrdinaryNesting_IsStillAnalyzedNormally` pins
+that distance.
+
+`AnalysisState.Token` is checked inside the walk, so a superseded
+analysis stops instead of finishing work nobody is waiting for.
+
+### 3.6 One in-flight request per kind
+
+Document and selection analysis are both Fast and both arrive on
+`ohno/analyze`. `AnalyzerService` keeps a **separate `CancelSlot` per
+kind**, so a newer document analysis supersedes only the previous
+document analysis. A single shared slot made them cancel each other:
+an edit with an active selection schedules both, the document request
+lands second, and the selection result was dropped every time. Deep
+runs are user-initiated and are never superseded.
+
+### 3.7 O(1) is never a fallback
+
+**An unresolved executable operation costs `C(name)` at Low
+confidence.** Constant time has to be positively known, which means a
+catalog entry or an entry in `ConstantTimePrimitives`. There is no
+"it looked like a primitive" path, because that is precisely how an
+`OrderBy(keySelector, comparer)` used to report O(1).
+
+`ConstantTimePrimitives` is keyed by containing type, not by member
+name: `int.GetHashCode()` is Θ(1) and `string.GetHashCode()` is
+Θ(length). It holds whole constant types (`System.Math`, `System.GC`,
+`System.Console` — Ohno makes no I/O claim), fixed-width scalar
+members, cached-singleton accessors (`StringComparer.Ordinal`), and
+individually listed members.
+
+The rule applies at every site that could invent a constant:
+
+| Site | Constant only when |
+|---|---|
+| Call | catalog hit, or `ConstantTimePrimitives.IsConstant` |
+| Constructor | catalog hit, collection copy, declared in this compilation, or a parameterless BCL ctor |
+| Property read | getter walked, catalog hit, declaring type is in this compilation (auto-properties), or a listed accessor |
+| Method with no body | auto-implemented accessor. Abstract / extern / partial are calls |
+
+Genuinely free operations stay free and are enumerated so the audit
+is reviewable: unreachable code, a declarator with no initializer, an
+empty switch, and an `ILocalFunctionOperation` **declaration** (cost is
+paid at the call — §2.4).
+
 ## 4. Test fixtures
 
 All live under `samples/` and are asserted in
@@ -335,6 +424,12 @@ that window/Fibonacci are Medium with a matching reason.
 | Suite | Role |
 |---|---|
 | `CardinalityGapTests` | Worklists, SizeDelta, heapify, SortedSet, Span, CFG |
+| `BclCatalogTests` | Everyday BCL: comparer/selector overloads, string members, spans, frozen sets, two-source LINQ. Asserts no bound collapses to a constant and no ordinary call leaves a `C(name)` |
+| `AnalyzerBenchmarkTests` | Wall-clock ceilings for the debounce path; prints per-fixture and per-function timings. Numbers are indicative — the same fixture has varied 2x run to run — so the ceiling is the contract, not the printed figure |
+| `RegexEngineTests` | Backtracking stays opaque; `NonBacktracking` earns a linear bound, including combined options, the static overload, and a materializing `Replace` |
+| `BoundaryBenchTests` | The adjacent-class boundaries learned predictors slide between: linear vs linearithmic, linearithmic vs quadratic, log vs linear, and shapes that look heavier or lighter than they are |
+| `MemberSurfaceTests` | Which members become results: scanning accessors and operators appear, auto-properties do not |
+| `RobustnessTests` | Generated-code shapes that must degrade rather than crash: 5,000-term expressions, 20,000-element initializers, 600-deep nesting, plus cancellation reaching inside a single method |
 | `AcceptanceTests` | Linear/nested/triangular loops, dictionary writes, literals |
 | `RecursionAndLinqTests` | Linear recurrence, merge-sort shape, `IQueryable` unknown |
 | `AlgebraTests` | Simplifier / dominance |
@@ -356,6 +451,12 @@ that window/Fibonacci are Medium with a matching reason.
   debounced (≤ 200 ms), ticketed so a stale response cannot land,
   and stored separately from document functions.
 - Inline annotations are gated by `ohno.annotations.showInline`.
+- Accessors, indexers, and operators are **analyzed** like any other
+  member and always appear in the panel; `ohno.annotations.accessors`
+  controls only whether they get an inline decoration, defaulting to
+  `nontrivial` so a class of plain properties does not line the margin
+  with `O(1)`. Auto-implemented accessors (`get;`) have no body and
+  produce no result at all.
 - Hover markdown is implemented but not registered by default; the
   panel is the primary UI.
 - Protocol field names are camelCase in TypeScript and PascalCase on
@@ -369,6 +470,17 @@ that window/Fibonacci are Medium with a matching reason.
 Register in `OperationCatalog` with type, name, arity, `SizeKind`,
 and `CostKind`. Use `Expected` / `Amortized` when the textbook bound
 is not worst-case (hash table, `List.Add`). Add an acceptance test.
+
+**Register every arity.** The catalog is keyed by arity, so
+`OrderBy#2` does not cover `OrderBy(keySelector, comparer)`. A missing
+overload is no longer silently constant — it becomes `C(name)` at Low
+confidence (§3.7) — but that is a visible defect, not a correct
+answer. Add the case to `samples/roslyn/RoslynBclCatalog.cs`, which
+exists to use everyday APIs rather than only the ones already known.
+
+Only put a member in `ConstantTimePrimitives` when its cost is fixed
+regardless of any input size. Anything size-dependent belongs in the
+catalog with a real template.
 
 ### Add a hazard pattern
 
@@ -420,7 +532,12 @@ form (`O(n C(f))`) over a tight High bound.
 
 ## 8. Commands
 
+Requires the **.NET 10 SDK**. `src/analyzer/global.json` pins it, and the
+solution is `Ohno.Complexity.slnx` — the XML solution format, which
+older SDKs cannot parse.
+
 ```bash
+dotnet test src/analyzer            # builds the whole .slnx
 dotnet test src/analyzer/ComplexityAnalyzer.Tests -c Release
 cd src/extension && npm test
 

@@ -33,7 +33,7 @@ const fn: FunctionComplexity = {
       children: [],
     }],
   },
-  warnings: [{ message: 'Worst-case analysis used for branches.' }],
+  warnings: [{ message: 'A library cost is amortized or expected, not a worst-case guarantee.' }],
   boundingSuggestions: [],
   explanation: 'Linearithmic time',
   patterns: [],

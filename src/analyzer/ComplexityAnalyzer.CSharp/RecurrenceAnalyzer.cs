@@ -26,20 +26,21 @@ internal static class RecurrenceAnalyzer
         IOperation body,
         AnalysisState state)
     {
-        var calls = FindRecursive(method, body).ToArray();
+        var nodes = OperationTree.SelfAndDescendants(body).ToArray();
+        var calls = FindRecursive(method, nodes).ToArray();
         if (calls.Length == 0) return null;
-        NoteBound(method, body, calls, state);
+        NoteBound(method, nodes, calls, state);
 
-        if (IsBinarySearch(body, calls))
+        if (IsBinarySearch(nodes, calls))
             return Solved(method, state, Cx.Log(Cx.Var("n")),
                 Cx.Log(Cx.Var("n")),
                 "binary-search", "binary-search recursion");
 
-        if (TryMemoized(body, state, out var states))
+        if (TryMemoized(nodes, state, out var states))
             return Solved(method, state, states, Cx.Var("n"),
                 "memoized-recursion", "memoized recursion");
 
-        if (IsSubsetGeneration(body, calls))
+        if (IsSubsetGeneration(nodes, calls))
         {
             var n = Cx.Var("n");
             var cost = Cx.Mul(n, Cx.Pow(Cx.Constant(2), n));
@@ -48,14 +49,14 @@ internal static class RecurrenceAnalyzer
         }
 
         if (TryPermutationOrCombination(
-            body, calls, state, out var genTime, out var genSpace))
+            nodes, calls, state, out var genTime, out var genSpace))
         {
             return Solved(method, state, genTime, genSpace,
                 "combinatorial-generation",
                 "combinatorial generation");
         }
 
-        if (TryGraphWalk(body, state, out var gTime, out var gSpace))
+        if (TryGraphWalk(nodes, state, out var gTime, out var gSpace))
             return Solved(method, state, gTime, gSpace,
                 "graph-traversal", "visited graph walk");
 
@@ -77,9 +78,9 @@ internal static class RecurrenceAnalyzer
     }
 
     private static IEnumerable<IInvocationOperation> FindRecursive(
-        IMethodSymbol method, IOperation body)
+        IMethodSymbol method, IReadOnlyList<IOperation> nodes)
     {
-        return Walk(body).OfType<IInvocationOperation>()
+        return nodes.OfType<IInvocationOperation>()
             .Where(c => SymbolEqualityComparer.Default.Equals(
                 c.TargetMethod.OriginalDefinition,
                 method.OriginalDefinition));
@@ -97,11 +98,11 @@ internal static class RecurrenceAnalyzer
     }
 
     private static bool IsBinarySearch(
-        IOperation body, IInvocationOperation[] calls)
+        IReadOnlyList<IOperation> nodes, IInvocationOperation[] calls)
     {
         if (calls.Length is < 1 or > 2) return false;
         if (!calls.All(IsExclusiveBranch)) return false;
-        return Walk(body).Any(IsMidSplit);
+        return nodes.Any(IsMidSplit);
     }
 
     private static bool IsExclusiveBranch(IInvocationOperation call)
@@ -142,12 +143,12 @@ internal static class RecurrenceAnalyzer
     }
 
     private static bool TryMemoized(
-        IOperation body,
+        IReadOnlyList<IOperation> nodes,
         AnalysisState state,
         out ComplexityExpression states)
     {
         states = Cx.One;
-        var target = Walk(body)
+        var target = nodes
             .OfType<ISimpleAssignmentOperation>()
             .Where(IsMemoAssignment)
             .Select(a => SizeResolver.Unwrap(a.Target))
@@ -189,15 +190,15 @@ internal static class RecurrenceAnalyzer
         };
 
     private static bool IsSubsetGeneration(
-        IOperation body, IInvocationOperation[] calls)
+        IReadOnlyList<IOperation> nodes, IInvocationOperation[] calls)
     {
         if (calls.Length != 2) return false;
         if (!calls.All(c => KindOf(c) == ArgKind.PlusOne)) return false;
-        return HasMaterializedCopy(body);
+        return HasMaterializedCopy(nodes);
     }
 
     private static bool TryPermutationOrCombination(
-        IOperation body,
+        IReadOnlyList<IOperation> nodes,
         IInvocationOperation[] calls,
         AnalysisState state,
         out ComplexityExpression time,
@@ -208,10 +209,10 @@ internal static class RecurrenceAnalyzer
         if (calls.Length == 0) return false;
         if (!calls.All(c => KindOf(c) is ArgKind.PlusOne or ArgKind.Other))
             return false;
-        if (!HasLoopAround(calls[0]) || !HasMaterializedCopy(body))
+        if (!HasLoopAround(calls[0]) || !HasMaterializedCopy(nodes))
             return false;
 
-        var copied = CopiedSize(body, state);
+        var copied = CopiedSize(nodes, state);
         var n = Cx.Var("n");
         if (copied is VariableExpression { Name: not "n" } k)
         {
@@ -226,16 +227,16 @@ internal static class RecurrenceAnalyzer
     }
 
     private static bool TryGraphWalk(
-        IOperation body,
+        IReadOnlyList<IOperation> nodes,
         AnalysisState state,
         out ComplexityExpression time,
         out ComplexityExpression space)
     {
         time = Cx.One;
         space = Cx.One;
-        var loop = Walk(body).OfType<IForEachLoopOperation>().FirstOrDefault();
+        var loop = nodes.OfType<IForEachLoopOperation>().FirstOrDefault();
         if (loop is null) return false;
-        if (!Walk(body).OfType<ISimpleAssignmentOperation>().Any(IsVisitedWrite))
+        if (!nodes.OfType<ISimpleAssignmentOperation>().Any(IsVisitedWrite))
             return false;
 
         var vertices = VerticesOf(loop, state);
@@ -268,8 +269,9 @@ internal static class RecurrenceAnalyzer
             ArgKind.MinusOne or ArgKind.MinusTwo);
     }
 
-    private static bool HasMaterializedCopy(IOperation body) =>
-        Walk(body).Any(op =>
+    private static bool HasMaterializedCopy(
+        IReadOnlyList<IOperation> nodes) =>
+        nodes.Any(op =>
             op is IInvocationOperation
             {
                 TargetMethod.Name: "Clone" or "ToArray" or "ToList"
@@ -280,9 +282,9 @@ internal static class RecurrenceAnalyzer
                     create.Arguments[0].Value.Type));
 
     private static ComplexityExpression? CopiedSize(
-        IOperation body, AnalysisState state)
+        IReadOnlyList<IOperation> nodes, AnalysisState state)
     {
-        foreach (var op in Walk(body))
+        foreach (var op in nodes)
         {
             if (op is IInvocationOperation
                 {
@@ -437,12 +439,12 @@ internal static class RecurrenceAnalyzer
 
     private static void NoteBound(
         IMethodSymbol method,
-        IOperation body,
+        IReadOnlyList<IOperation> nodes,
         IInvocationOperation[] calls,
         AnalysisState state)
     {
         var decreased = DecreasedNames(calls);
-        foreach (var cond in Walk(body).OfType<IConditionalOperation>())
+        foreach (var cond in nodes.OfType<IConditionalOperation>())
         {
             if (!IsEarlyExit(cond)) continue;
             var name = CapName(cond.Condition, decreased);
@@ -497,7 +499,7 @@ internal static class RecurrenceAnalyzer
         IOperation? condition, HashSet<string> decreased)
     {
         if (condition is null) return null;
-        foreach (var op in Walk(condition))
+        foreach (var op in OperationTree.SelfAndDescendants(condition))
         {
             if (op is not IParameterReferenceOperation p) continue;
             if (p.Type is null || !IsIntegral(p.Type)) continue;
@@ -529,15 +531,6 @@ internal static class RecurrenceAnalyzer
         };
     }
 
-    private static IEnumerable<IOperation> Walk(IOperation root)
-    {
-        yield return root;
-        foreach (var child in root.ChildOperations)
-        {
-            foreach (var nested in Walk(child))
-                yield return nested;
-        }
-    }
 
     private static bool IsIntegral(ITypeSymbol type) =>
         type.SpecialType is SpecialType.System_Int32

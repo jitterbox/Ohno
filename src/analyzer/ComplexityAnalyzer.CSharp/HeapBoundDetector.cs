@@ -17,7 +17,7 @@ internal static class HeapBoundDetector
 {
     public static void Detect(IOperation body, AnalysisState state)
     {
-        foreach (var operation in Walk(body))
+        foreach (var operation in OperationTree.SelfAndDescendants(body))
         {
             if (operation is not IConditionalOperation cond) continue;
             if (!TryBound(cond.Condition, state, out var heap, out var bound))
@@ -67,7 +67,7 @@ internal static class HeapBoundDetector
     private static bool ContainsShrink(IOperation? body, ISymbol heap)
     {
         if (body is null) return false;
-        return Walk(body).OfType<IInvocationOperation>().Any(call =>
+        return OperationTree.SelfAndDescendants(body).OfType<IInvocationOperation>().Any(call =>
             IsShrink(call.TargetMethod.Name)
             && SymbolEqualityComparer.Default.Equals(
                 SizeResolver.TargetSymbol(call.Instance), heap));
@@ -77,13 +77,4 @@ internal static class HeapBoundDetector
         name is "Dequeue" or "TryDequeue" or "Pop" or "TryPop"
             or "RemoveAt" or "Remove";
 
-    private static IEnumerable<IOperation> Walk(IOperation root)
-    {
-        yield return root;
-        foreach (var child in root.ChildOperations)
-        {
-            foreach (var nested in Walk(child))
-                yield return nested;
-        }
-    }
 }

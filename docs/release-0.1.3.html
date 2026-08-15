@@ -1,0 +1,597 @@
+<title>Ohno 0.1.3</title>
+<style>
+  /* Palette: engineering paper and plotted ink. Neutrals carry a blue
+     bias toward the indigo accent so nothing reads as default grey.
+     Semantic pair (was/now) is separate from the accent. */
+  :root {
+    --ground: #F5F6F9;
+    --raise: #FFFFFF;
+    --ink: #141821;
+    --muted: #59637A;
+    --faint: #8A93A6;
+    --rule: #DDE1EA;
+    --accent: #3B45B5;
+    --accent-soft: #E7E9F8;
+    --was: #A8431C;
+    --was-soft: #F7EAE3;
+    --now: #176B52;
+    --now-soft: #E2F0EA;
+
+    --display: "Iowan Old Style", "Palatino Linotype", Palatino,
+      Georgia, serif;
+    --body: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+    --mono: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas,
+      monospace;
+
+    --measure: 68ch;
+    --step: clamp(1rem, 0.6rem + 0.5vw, 1.0625rem);
+  }
+
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) {
+      --ground: #0F131B;
+      --raise: #161B25;
+      --ink: #E9ECF3;
+      --muted: #98A2B6;
+      --faint: #6B7488;
+      --rule: #262D3A;
+      --accent: #8E97FF;
+      --accent-soft: #1D2338;
+      --was: #E08A5F;
+      --was-soft: #2A1E19;
+      --now: #58C8A0;
+      --now-soft: #12271F;
+    }
+  }
+
+  :root[data-theme="dark"] {
+    --ground: #0F131B;
+    --raise: #161B25;
+    --ink: #E9ECF3;
+    --muted: #98A2B6;
+    --faint: #6B7488;
+    --rule: #262D3A;
+    --accent: #8E97FF;
+    --accent-soft: #1D2338;
+    --was: #E08A5F;
+    --was-soft: #2A1E19;
+    --now: #58C8A0;
+    --now-soft: #12271F;
+  }
+
+  * { box-sizing: border-box; }
+
+  body {
+    margin: 0;
+    background: var(--ground);
+    color: var(--ink);
+    font-family: var(--body);
+    font-size: var(--step);
+    line-height: 1.65;
+    -webkit-font-smoothing: antialiased;
+  }
+
+  .page {
+    max-width: 78ch;
+    margin: 0 auto;
+    padding: clamp(2rem, 5vw, 4.5rem) clamp(1.15rem, 4vw, 2.5rem) 5rem;
+    display: flex;
+    flex-direction: column;
+    gap: 3.25rem;
+  }
+
+  /* ---- masthead ---- */
+
+  header { display: flex; flex-direction: column; gap: 1.25rem; }
+
+  .wordmark {
+    font-family: var(--display);
+    font-size: clamp(2.6rem, 1.6rem + 4vw, 4rem);
+    line-height: 1;
+    letter-spacing: -0.02em;
+    margin: 0;
+    text-wrap: balance;
+  }
+
+  .wordmark .paren { color: var(--accent); }
+
+  .release-line {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: baseline;
+    gap: 0.75rem 1.1rem;
+    font-family: var(--mono);
+    font-size: 0.8rem;
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+    color: var(--faint);
+  }
+
+  .version {
+    color: var(--accent);
+    background: var(--accent-soft);
+    padding: 0.2rem 0.55rem;
+    border-radius: 3px;
+    letter-spacing: 0.04em;
+  }
+
+  .lede {
+    font-family: var(--display);
+    font-size: clamp(1.2rem, 1rem + 0.7vw, 1.45rem);
+    line-height: 1.5;
+    color: var(--muted);
+    max-width: var(--measure);
+    margin: 0;
+    text-wrap: pretty;
+  }
+
+  /* ---- counters ---- */
+
+  .counts {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(9.5rem, 1fr));
+    gap: 1px;
+    background: var(--rule);
+    border: 1px solid var(--rule);
+    border-radius: 5px;
+    overflow: hidden;
+  }
+
+  .count {
+    background: var(--raise);
+    padding: 1rem 1.15rem;
+    display: flex;
+    flex-direction: column;
+    gap: 0.15rem;
+  }
+
+  .count b {
+    font-family: var(--mono);
+    font-size: 1.5rem;
+    font-weight: 600;
+    font-variant-numeric: tabular-nums;
+    letter-spacing: -0.02em;
+  }
+
+  .count .delta { color: var(--faint); font-size: 0.95rem; }
+
+  .count span {
+    font-size: 0.76rem;
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+    color: var(--faint);
+  }
+
+  /* ---- sections ---- */
+
+  section { display: flex; flex-direction: column; gap: 1.1rem; }
+
+  h2 {
+    font-family: var(--display);
+    font-size: clamp(1.5rem, 1.2rem + 1vw, 1.95rem);
+    line-height: 1.2;
+    letter-spacing: -0.015em;
+    margin: 0;
+    padding-top: 1.5rem;
+    border-top: 1px solid var(--rule);
+    text-wrap: balance;
+  }
+
+  h3 {
+    font-family: var(--body);
+    font-size: 1rem;
+    font-weight: 650;
+    margin: 0.5rem 0 0;
+    letter-spacing: -0.005em;
+  }
+
+  p { margin: 0; max-width: var(--measure); text-wrap: pretty; }
+
+  a { color: var(--accent); text-underline-offset: 0.18em; }
+  a:focus-visible {
+    outline: 2px solid var(--accent);
+    outline-offset: 2px;
+    border-radius: 2px;
+  }
+
+  code {
+    font-family: var(--mono);
+    font-size: 0.88em;
+    background: var(--accent-soft);
+    color: var(--ink);
+    padding: 0.1em 0.34em;
+    border-radius: 3px;
+  }
+
+  /* ---- the ledger: the star of this release ---- */
+
+  .ledger-wrap { overflow-x: auto; }
+
+  table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 0.94rem;
+  }
+
+  caption {
+    text-align: left;
+    font-size: 0.76rem;
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+    color: var(--faint);
+    padding-bottom: 0.6rem;
+  }
+
+  th {
+    text-align: left;
+    font-size: 0.72rem;
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+    color: var(--faint);
+    font-weight: 600;
+    padding: 0 0.9rem 0.5rem 0;
+    border-bottom: 1px solid var(--rule);
+    white-space: nowrap;
+  }
+
+  td {
+    padding: 0.6rem 0.9rem 0.6rem 0;
+    border-bottom: 1px solid var(--rule);
+    vertical-align: baseline;
+  }
+
+  td:first-child { font-family: var(--mono); font-size: 0.86rem; }
+
+  .bound {
+    font-family: var(--mono);
+    font-size: 0.86rem;
+    font-variant-numeric: tabular-nums;
+    white-space: nowrap;
+    padding: 0.12rem 0.42rem;
+    border-radius: 3px;
+  }
+
+  .bound.was { color: var(--was); background: var(--was-soft); }
+  .bound.now { color: var(--now); background: var(--now-soft); }
+
+  /* ---- phase list: a real sequence, so it is numbered ---- */
+
+  ol.phases {
+    list-style: none;
+    margin: 0;
+    padding: 0;
+    display: flex;
+    flex-direction: column;
+    gap: 0.9rem;
+    counter-reset: phase -1;
+  }
+
+  ol.phases li {
+    display: grid;
+    grid-template-columns: 2.4rem 1fr;
+    gap: 0 0.9rem;
+    align-items: baseline;
+    counter-increment: phase;
+  }
+
+  ol.phases li::before {
+    content: counter(phase);
+    font-family: var(--mono);
+    font-size: 0.78rem;
+    font-variant-numeric: tabular-nums;
+    color: var(--accent);
+    background: var(--accent-soft);
+    border-radius: 3px;
+    padding: 0.15rem 0;
+    text-align: center;
+  }
+
+  ol.phases b { font-weight: 650; }
+  ol.phases .detail { color: var(--muted); }
+
+  ul.plain {
+    margin: 0;
+    padding: 0;
+    list-style: none;
+    display: flex;
+    flex-direction: column;
+    gap: 0.85rem;
+    max-width: var(--measure);
+  }
+
+  ul.plain li {
+    padding-left: 1.1rem;
+    position: relative;
+  }
+
+  ul.plain li::before {
+    content: "";
+    position: absolute;
+    left: 0;
+    top: 0.62em;
+    width: 0.42rem;
+    height: 1px;
+    background: var(--accent);
+  }
+
+  .note {
+    background: var(--raise);
+    border: 1px solid var(--rule);
+    border-left: 2px solid var(--accent);
+    border-radius: 4px;
+    padding: 1.05rem 1.25rem;
+    display: flex;
+    flex-direction: column;
+    gap: 0.6rem;
+    max-width: var(--measure);
+  }
+
+  .note .label {
+    font-family: var(--mono);
+    font-size: 0.72rem;
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+    color: var(--faint);
+  }
+
+  footer {
+    border-top: 1px solid var(--rule);
+    padding-top: 1.5rem;
+    color: var(--faint);
+    font-size: 0.88rem;
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.5rem 1.5rem;
+  }
+</style>
+
+<div class="page">
+  <header>
+    <h1 class="wordmark">O<span class="paren">ʰ</span>(N<span class="paren">ᵒ</span>)</h1>
+    <div class="release-line">
+      <span class="version">0.1.3</span>
+      <span>15 August 2026</span>
+      <span>Algorithmic complexity for C#</span>
+    </div>
+    <p class="lede">
+      A research pass against the current Roslyn platform, and the six
+      phases of work it recommended. The theme is honesty about what is
+      and is not known: constant time now has to be established rather
+      than assumed.
+    </p>
+  </header>
+
+  <div class="counts">
+    <div class="count">
+      <b>311</b>
+      <span>Analyzer tests</span>
+      <span class="delta">was 201</span>
+    </div>
+    <div class="count">
+      <b>54</b>
+      <span>Extension tests</span>
+      <span class="delta">was 44</span>
+    </div>
+    <div class="count">
+      <b>9</b>
+      <span>Findings fixed</span>
+      <span class="delta">2 deferred, with reasons</span>
+    </div>
+    <div class="count">
+      <b>.NET 10</b>
+      <span>Toolchain</span>
+      <span class="delta">was net8.0</span>
+    </div>
+  </div>
+
+  <section>
+    <h2>O(1) was a fallback</h2>
+    <p>
+      Any <code>System.*</code> member whose containing type was not
+      itself a collection was costed as free.
+      <code>System.Linq.Enumerable</code> is a static class, so every
+      LINQ overload missing from the catalog was silently constant — a
+      sort could disappear from the headline entirely.
+    </p>
+
+    <div class="ledger-wrap">
+      <table>
+        <caption>Reported before, and what the call actually costs</caption>
+        <thead>
+          <tr>
+            <th scope="col">Call</th>
+            <th scope="col">Reported</th>
+            <th scope="col">Actual</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td>.OrderBy(k, comparer)</td>
+            <td><span class="bound was">O(1)</span></td>
+            <td><span class="bound now">O(n log n)</span></td>
+          </tr>
+          <tr>
+            <td>.Sum(selector)</td>
+            <td><span class="bound was">O(1)</span></td>
+            <td><span class="bound now">O(n)</span></td>
+          </tr>
+          <tr>
+            <td>.Concat, .Zip, .Union</td>
+            <td><span class="bound was">O(1)</span></td>
+            <td><span class="bound now">O(n + m)</span></td>
+          </tr>
+          <tr>
+            <td>File.ReadAllLines(path)</td>
+            <td><span class="bound was">O(1)</span></td>
+            <td><span class="bound now">O(file)</span></td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+
+    <p>
+      Meanwhile <code>string</code> <em>is</em> a collection by that same
+      test, so <code>Substring</code> and <code>Split</code> took the
+      opposite path and dragged ordinary methods to Low confidence — two
+      wrong answers in opposite directions from one incidental type
+      check.
+    </p>
+    <p>
+      Constant time is now something the analyzer has to know: a catalog
+      entry, or an allowlist entry keyed by <em>containing type</em>
+      rather than member name, because <code>int.GetHashCode()</code> is
+      Θ(1) and <code>string.GetHashCode()</code> is Θ(length). The rule
+      covers calls, constructors, metadata property reads, and bodyless
+      method symbols.
+    </p>
+  </section>
+
+  <section>
+    <h2>The toolchain was broken where CI could not see it</h2>
+    <p>
+      The analyzer solution is <code>Ohno.Complexity.slnx</code>, which
+      the .NET 8 SDK cannot parse — <code>dotnet restore</code> fails
+      outright. CI passed only because hosted runners carry newer SDKs
+      than the workflow declared, so the declared toolchain and the
+      working toolchain had quietly drifted apart. Anyone with just the
+      declared SDK could not build at all.
+    </p>
+    <div class="note">
+      <span class="label">Resolved</span>
+      <p>
+        All projects on <code>net10.0</code>, CI declaring
+        <code>10.0.x</code>, and a <code>global.json</code> pinning the
+        SDK so the drift cannot recur silently. The Roslyn package
+        reference is unchanged — 5.6.0 already ships
+        <code>net10.0</code> assets.
+      </p>
+    </div>
+  </section>
+
+  <section>
+    <h2>Bounds that moved, and why</h2>
+    <p>
+      Three results changed by design. Each is a correction toward the
+      documented model, not a loosening of it.
+    </p>
+    <ul class="plain">
+      <li>
+        <b>Sliding window</b> — <span class="bound was">O(n)</span>
+        <span class="bound now">O(k + n)</span>. Reserving k slots is
+        Θ(k) work, and k is independent of n. The old result assumed
+        k&nbsp;≤&nbsp;n, which the model forbids.
+      </li>
+      <li>
+        <b>Insertion sort</b> — <span class="bound was">O(n)</span>
+        <span class="bound now">O(n²)</span>. The amortized-pointer rule
+        holds only while the inner counter keeps its position between
+        outer steps, and <code>j = i - 1</code> re-seeds it. Every
+        two-pointer case in the bench is unchanged.
+      </li>
+      <li>
+        <b>Constant inner loop</b> — <span class="bound was">O(n²)</span>
+        <span class="bound now">O(n)</span>. A literal ceiling on a
+        constant-stepping counter is a fixed count; a literal ceiling on
+        a halving variable still yields log.
+      </li>
+    </ul>
+  </section>
+
+  <section>
+    <h2>Also fixed</h2>
+    <ul class="plain">
+      <li>
+        <b>Selection and document analysis cancelled each other.</b> Both
+        are Fast and both arrive on the same method, and a single shared
+        cancellation slot meant an edit with an active selection had the
+        document request cancel the selection every time.
+      </li>
+      <li>
+        <b><code>.slnx</code> was invisible to the extension</b>, so Ohno
+        could not analyze its own repository project-backed.
+      </li>
+      <li>
+        <b>Accessors, indexers, and operators were never reported</b>
+        despite the protocol already declaring the kinds. An expensive
+        getter is one of the easiest places for an O(n) to hide.
+      </li>
+      <li>
+        <b>No depth guard on the operation walk.</b> Generated code can
+        nest far enough to overflow the stack — and that stack belongs to
+        a server process shared by the whole editor session.
+      </li>
+      <li>
+        <b>Non-backtracking regex earns a real bound.</b> The one place
+        the honesty rule points toward a <em>tighter</em> answer, since
+        .NET guarantees that engine scans the input once.
+      </li>
+    </ul>
+  </section>
+
+  <section>
+    <h2>How it was sequenced</h2>
+    <ol class="phases">
+      <li>
+        <b>Toolchain and harness.</b>
+        <span class="detail">Baseline recorded before any edit; .NET 10
+        migration; benchmark ceilings.</span>
+      </li>
+      <li>
+        <b>BCL accuracy.</b>
+        <span class="detail">The O(1) rule, and the catalog surface that
+        made the old fallback load-bearing.</span>
+      </li>
+      <li>
+        <b>Analyzer cost.</b>
+        <span class="detail">Seven duplicated walkers collapsed into one.
+        No result permitted to change.</span>
+      </li>
+      <li>
+        <b>Robustness.</b>
+        <span class="detail">Keyed cancellation, a token inside the walk,
+        a depth floor.</span>
+      </li>
+      <li>
+        <b>Coverage and UX.</b>
+        <span class="detail">Solution discovery, accessors, warning
+        noise.</span>
+      </li>
+      <li>
+        <b>Research-backed additions.</b>
+        <span class="detail">Regex engines, and a bench widened at the
+        boundary the literature flags.</span>
+      </li>
+    </ol>
+  </section>
+
+  <section>
+    <h2>Deliberately not done</h2>
+    <div class="note">
+      <span class="label">Deferred, with reasons recorded</span>
+      <p>
+        <b>Simplify placement</b> is the one refactor that could change
+        output, and the benchmark on the test machine varies twofold run
+        to run — there is no way to show it helps. Spending correctness
+        risk on an unmeasurable gain is the wrong trade.
+      </p>
+      <p>
+        <b>CFG ranking functions</b> and the
+        <b>AnalyzerUtilities dataflow engine</b> were considered and not
+        scheduled. Both are real improvements with real costs, and
+        neither is needed for the work above.
+      </p>
+    </div>
+    <p>
+      The widened bench was meant to carry no engine risk. It found two
+      real bugs instead, which is the better outcome — both are in
+      “bounds that moved”.
+    </p>
+  </section>
+
+  <footer>
+    <span>Ohno 0.1.3</span>
+    <span>MIT</span>
+    <span>C# via Roslyn 5.6.0</span>
+    <span>Full detail in CHANGELOG.md</span>
+  </footer>
+</div>

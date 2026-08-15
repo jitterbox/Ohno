@@ -111,7 +111,7 @@ internal static class SelectionFragment
     private static IBlockOperation? FindAnyBlock(
         IOperation root, TextSpan selected)
     {
-        foreach (var op in Walk(root))
+        foreach (var op in OperationTree.SelfAndDescendants(root))
         {
             if (op is IBlockOperation block && Contains(block, selected))
                 return block;
@@ -197,13 +197,4 @@ internal static class SelectionFragment
     private static TextSpan SpanOf(IOperation operation) =>
         operation.Syntax?.Span ?? default;
 
-    private static IEnumerable<IOperation> Walk(IOperation root)
-    {
-        yield return root;
-        foreach (var child in root.ChildOperations)
-        {
-            foreach (var nested in Walk(child))
-                yield return nested;
-        }
-    }
 }

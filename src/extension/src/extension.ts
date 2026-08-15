@@ -118,7 +118,7 @@ function bindSolution(
   output: vscode.OutputChannel,
 ): vscode.Disposable {
   const work = vscode.workspace.findFiles(
-    '**/*.sln',
+    '**/*.{sln,slnx}',
     '{**/node_modules/**,**/bin/**,**/obj/**}',
     1,
   ).then((files) => {

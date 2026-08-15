@@ -52,15 +52,31 @@ export class AnalyzerRpcClient {
   }
 
   dispose(): void {
-    try {
-      this.connection?.sendNotification(ProtocolMethods.shutdown);
-    } catch {
-      // Process may already be gone.
-    }
+    this.announceShutdown();
     this.connection?.dispose();
     this.kill(this.process);
     this.connection = undefined;
     this.process = undefined;
+  }
+
+  /**
+   * Ask the server to stop, and accept that the message may not land.
+   *
+   * The pipe is closing and the process is killed on the next line
+   * either way, so losing that race is expected rather than
+   * exceptional. `sendNotification` returns a promise, so a synchronous
+   * catch alone leaves the EPIPE it rejects with unhandled — which
+   * surfaces as an unhandled rejection well after dispose returned.
+   */
+  private announceShutdown(): void {
+    try {
+      const sent = this.connection?.sendNotification(
+        ProtocolMethods.shutdown,
+      );
+      void Promise.resolve(sent).catch(() => undefined);
+    } catch {
+      // The connection was already disposed.
+    }
   }
 
   private send(
@@ -169,7 +185,7 @@ export function resolveServerPath(
       'ComplexityAnalyzer.Server',
       'bin',
       'Debug',
-      'net8.0',
+      'net10.0',
     ),
     path.join(
       extensionPath,
@@ -178,7 +194,7 @@ export function resolveServerPath(
       'ComplexityAnalyzer.Server',
       'bin',
       'Release',
-      'net8.0',
+      'net10.0',
     ),
   ];
   for (const dir of dirs) {

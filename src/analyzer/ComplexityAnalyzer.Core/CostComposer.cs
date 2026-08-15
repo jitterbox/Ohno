@@ -43,18 +43,10 @@ public static class CostComposer
         ComposedCost? whenFalse,
         LineSpan? span)
     {
+        // Worst case: do not add mutually exclusive branches.
         var branch = whenFalse is null
             ? whenTrue.Time
-            : Cx.Add(Cx.One); // placeholder replaced below
-        if (whenFalse is not null)
-        {
-            // Worst case: do not add mutually exclusive branches.
-            branch = MaxExpr(whenTrue.Time, whenFalse.Time);
-        }
-        else
-        {
-            branch = whenTrue.Time;
-        }
+            : MaxExpr(whenTrue.Time, whenFalse.Time);
 
         var time = ComplexitySimplifier.Simplify(
             Cx.Add(condition.Time, branch));
@@ -86,13 +78,15 @@ public static class CostComposer
                 time,
                 span,
                 EvidencePruner.Meaningful(children)),
+            // No blanket "worst case was used" warning here. Taking the
+            // worst branch is how the model is defined, not a caveat
+            // about this result, and attaching it to nearly every
+            // method diluted the warnings that do carry information.
+            // The derivation tree still labels the node.
             Warnings = Concat(
                 new[] { condition, whenTrue, whenFalse }
                     .OfType<ComposedCost>(),
-                p => p.Warnings)
-                .Append(new AnalysisWarning(
-                    "Worst-case analysis used for branches."))
-                .ToArray(),
+                p => p.Warnings),
             Suggestions = Concat(
                 new[] { condition, whenTrue, whenFalse }
                     .OfType<ComposedCost>(),

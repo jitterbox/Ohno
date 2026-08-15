@@ -33,9 +33,14 @@ public sealed partial class CSharpMethodAnalyzer
     public ComplexityResult Analyze(
         IMethodSymbol method,
         SemanticModel model,
-        AnalysisTier tier)
+        AnalysisTier tier,
+        CancellationToken token = default)
     {
-        var state = new AnalysisState(tier) { Catalog = _catalog };
+        var state = new AnalysisState(tier)
+        {
+            Catalog = _catalog,
+            Token = token,
+        };
         DimensionInferrer.Infer(method, state);
         var cost = AnalyzeSymbol(method, model, state);
         var body = TryGetBody(method, model);
@@ -47,9 +52,14 @@ public sealed partial class CSharpMethodAnalyzer
         IMethodSymbol method,
         SemanticModel model,
         LineSpan span,
-        AnalysisTier tier)
+        AnalysisTier tier,
+        CancellationToken token = default)
     {
-        var state = new AnalysisState(tier) { Catalog = _catalog };
+        var state = new AnalysisState(tier)
+        {
+            Catalog = _catalog,
+            Token = token,
+        };
         DimensionInferrer.Infer(method, state);
         var body = TryGetBody(method, model);
         var parts = SelectionFragment.Extract(
@@ -98,8 +108,7 @@ public sealed partial class CSharpMethodAnalyzer
             return UnknownCall(method.Name, null, "no syntax");
 
         var body = TryGetBody(method, model);
-        if (body is null)
-            return ComposedCost.Unit("method", method.Name, RoslynSpans.Of(syntax));
+        if (body is null) return NoBody(method, syntax);
 
         var rec = RecurrenceAnalyzer.TrySolve(method, body, state);
         if (rec is not null) return rec;
@@ -133,7 +142,10 @@ public sealed partial class CSharpMethodAnalyzer
         if (hops <= 0) return parts[0];
         var parent = parts[0].Parent;
         if (parent is null) return parts[0];
-        if (parent.ChildOperations.Count() > 64) return parts[0];
+        // Bounded probe: a wide parent means the merge would cover
+        // far more than the selection, and counting every child of a
+        // generated initializer is itself the cost being avoided.
+        if (parent.ChildOperations.Skip(64).Any()) return parts[0];
         return MergeUntil([parent], hops - 1);
     }
 
@@ -149,7 +161,7 @@ public sealed partial class CSharpMethodAnalyzer
         var confidence = Downgrade(cost, time);
         var evidence = EvidencePruner.Prune(cost.Evidence);
         var raw = parts
-            .SelectMany(p => PatternRecognizer.Recognize(method, p))
+            .SelectMany(p => PatternRecognizer.Recognize(method, p, state))
             .DistinctBy(p => p.Id)
             .ToArray();
         var patterns = PatternRefiner.Refine(raw, time, state);
@@ -196,6 +208,39 @@ public sealed partial class CSharpMethodAnalyzer
             ["The selection is not a statement inside a method."],
             [],
             "Select a statement or loop inside a method.");
+    }
+
+    /// <summary>
+    /// A method symbol with no body. An auto-implemented accessor
+    /// (<c>get;</c>) reads a compiler-generated field and is genuinely
+    /// constant; an abstract, extern, or partial declaration has an
+    /// implementation somewhere else, so its cost is a call rather
+    /// than free.
+    /// </summary>
+    private static ComposedCost NoBody(
+        IMethodSymbol method, SyntaxNode syntax)
+    {
+        if (IsAutoImplemented(method))
+        {
+            return ComposedCost.Unit(
+                "field", method.Name, RoslynSpans.Of(syntax));
+        }
+
+        return UnknownCall(
+            method.Name,
+            RoslynSpans.Of(syntax),
+            $"{method.Name} has no body in this compilation, so its "
+            + "cost is carried as a call instead of assumed constant");
+    }
+
+    private static bool IsAutoImplemented(IMethodSymbol method)
+    {
+        if (method.IsAbstract || method.IsExtern) return false;
+        return method.MethodKind
+            is MethodKind.PropertyGet
+            or MethodKind.PropertySet
+            or MethodKind.EventAdd
+            or MethodKind.EventRemove;
     }
 
     private static IOperation? TryGetBody(

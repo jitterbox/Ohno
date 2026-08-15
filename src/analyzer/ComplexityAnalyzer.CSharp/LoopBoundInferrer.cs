@@ -41,8 +41,9 @@ internal static class LoopBoundInferrer
         var condition = SizeResolver.Unwrap(loop.Condition);
         if (condition is IBinaryOperation binary)
         {
+            var shape = ShapeOf(loop, state);
             var bound = InferBinary(binary, state);
-            if (IsHalvingWhile(loop) || IsBinaryPartition(loop))
+            if (shape.Halves || (shape.MidSplits && shape.ShrinksBound))
                 return (Cx.Log(bound), $"while log ({Fmt(bound)})");
             if (WorklistBoundDetector.TryIterations(
                 loop, state, out var nodes))
@@ -50,7 +51,7 @@ internal static class LoopBoundInferrer
                 return (nodes, "while (heap worklist)");
             }
 
-            if (TryFrontier(loop, state, out var frontier))
+            if (TryFrontier(loop, shape, state, out var frontier))
                 return (frontier, "while (visited frontier)");
 
             if (IsNullTerminated(condition))
@@ -75,6 +76,22 @@ internal static class LoopBoundInferrer
     {
         if (IsComparison(binary.OperatorKind))
         {
+            // A literal ceiling on a counter that steps by a constant
+            // is a fixed iteration count: `for (j = 0; j < 8; j++)`
+            // runs a constant number of times and must not inherit the
+            // enclosing loop's bound.
+            //
+            // The counter has to be one the increment scan actually
+            // tracked. `while (size > 1) size >>= 1` also compares
+            // against a literal, but it moves multiplicatively, so its
+            // count is logarithmic in the starting value — the halving
+            // detection downstream handles that.
+            if (IsLiteral(binary.RightOperand)
+                && IsSteppedCounter(binary.LeftOperand, state))
+            {
+                return Cx.One;
+            }
+
             var right = SizeResolver.Resolve(binary.RightOperand, state);
             var left = SizeResolver.Resolve(binary.LeftOperand, state);
             // j < i where i is a loop index: use the larger-looking side.
@@ -85,6 +102,23 @@ internal static class LoopBoundInferrer
 
         return Cx.Var("n");
     }
+
+    private static bool IsLiteral(IOperation operation) =>
+        SizeResolver.Unwrap(operation) is ILiteralOperation
+        {
+            ConstantValue.HasValue: true,
+        };
+
+    /// <summary>
+    /// A local the increment scan saw moving by a constant step. This
+    /// is the strict form of <see cref="IsLoopIndex"/>, which also
+    /// accepts any integral local as a fallback — too loose to decide
+    /// that a loop terminates in constant time.
+    /// </summary>
+    private static bool IsSteppedCounter(
+        IOperation operation, AnalysisState state) =>
+        SizeResolver.Unwrap(operation) is ILocalReferenceOperation local
+        && state.LoopIndices.Contains(local.Local);
 
     private static string Fmt(ComplexityExpression expression) =>
         ComplexityFormatter.Format(expression);
@@ -137,26 +171,70 @@ internal static class LoopBoundInferrer
 
         return loop.ChildOperations
             .Where(op => op != loop.Body && op != loop.Condition)
-            .SelectMany(Walk)
+            .SelectMany(OperationTree.SelfAndDescendants)
             .Any(op => IsDoubling(op) || IsHalving(op));
     }
 
     private static bool TryFrontier(
         IWhileLoopOperation loop,
+        LoopShape shape,
         AnalysisState state,
         out ComplexityExpression bound)
     {
         bound = Cx.One;
         if (!IsCountPositive(loop.Condition)) return false;
-        var visited = Walk(loop.Body)
-            .OfType<ISimpleAssignmentOperation>()
-            .Select(a => SizeResolver.Unwrap(a.Target))
-            .OfType<IArrayElementReferenceOperation>()
-            .Select(e => SizeResolver.TargetSymbol(e.ArrayReference))
-            .FirstOrDefault(s => s is not null);
-        if (visited is null) return false;
-        bound = state.SizeOf(visited);
+        if (shape.VisitedArray is null) return false;
+        // The symbol is structural and cached; its size is not, so it
+        // is resolved against the current state on every call.
+        bound = state.SizeOf(shape.VisitedArray);
         return true;
+    }
+
+    /// <summary>
+    /// Gathers every shape question about a loop body in one pass, and
+    /// caches it. These used to be up to four independent full walks of
+    /// the same sub-tree per call, and <c>Infer</c> is called both by
+    /// the cardinality pass and by the cost walk.
+    /// </summary>
+    private static LoopShape ShapeOf(
+        IWhileLoopOperation loop, AnalysisState state)
+    {
+        if (state.LoopShapes.TryGetValue(loop, out var cached))
+            return cached;
+
+        var halves = false;
+        var midSplits = false;
+        var shrinks = false;
+        ISymbol? visited = null;
+
+        foreach (var op in OperationTree.SelfAndDescendants(loop.Body))
+        {
+            if (!halves && IsHalving(op)) halves = true;
+            if (!midSplits && IsMidSplit(op)) midSplits = true;
+            if (!shrinks && IsBoundShrink(op)) shrinks = true;
+            if (visited is null) visited = VisitTarget(op);
+        }
+
+        var shape = new LoopShape(halves, midSplits, shrinks, visited);
+        state.LoopShapes[loop] = shape;
+        return shape;
+    }
+
+    /// <summary>
+    /// The array a visit mark is written into, if this operation is
+    /// such a write. First hit wins, matching the previous walk.
+    /// </summary>
+    private static ISymbol? VisitTarget(IOperation operation)
+    {
+        if (operation is not ISimpleAssignmentOperation assign)
+            return null;
+        if (SizeResolver.Unwrap(assign.Target)
+            is not IArrayElementReferenceOperation element)
+        {
+            return null;
+        }
+
+        return SizeResolver.TargetSymbol(element.ArrayReference);
     }
 
     private static bool IsCountPositive(IOperation? condition)
@@ -178,14 +256,96 @@ internal static class LoopBoundInferrer
         };
     }
 
-    private static bool IsHalvingWhile(IWhileLoopOperation loop)
+
+    /// <summary>
+    /// Whether the inner loop's counter is re-seeded by the enclosing
+    /// loop, which is what separates a two-pointer scan from a
+    /// quadratic one.
+    /// </summary>
+    /// <remarks>
+    /// The amortized-pointer rule says an inner <c>while</c> that only
+    /// advances a pointer costs O(1) per outer step, because across the
+    /// whole outer loop the pointer moves at most n times in total.
+    /// That argument holds precisely while the pointer keeps its
+    /// position between outer iterations.
+    /// <para>
+    /// Insertion sort breaks it: <c>j = i - 1</c> puts the counter back
+    /// every time, so the inner walk can run its full length on each
+    /// outer step and the loop really is quadratic. A reset is visible
+    /// in the source, so this is a proof, not a guess.
+    /// </para>
+    /// </remarks>
+    public static bool ResetsCounter(
+        IWhileLoopOperation loop, AnalysisState state)
     {
-        return Walk(loop.Body).Any(IsHalving);
+        if (state.CurrentLoopBody is not { } outer) return false;
+        var counters = CounterSymbols(loop.Condition);
+        if (counters.Count == 0) return false;
+
+        foreach (var op in OutsideInnerLoop(outer, loop))
+        {
+            switch (op)
+            {
+                // Re-seeded: `j = i - 1` before each inner walk.
+                case ISimpleAssignmentOperation assign
+                    when Targets(assign.Target, counters):
+                    return true;
+
+                // Declared inside the outer body, so it is a fresh
+                // variable on every outer step — the same reset, spelt
+                // as `var j = i - 1`.
+                case IVariableDeclaratorOperation declarator
+                    when counters.Contains(declarator.Symbol):
+                    return true;
+            }
+        }
+
+        return false;
+    }
+
+    private static bool Targets(
+        IOperation target, HashSet<ISymbol> counters)
+    {
+        var symbol = SizeResolver.TargetSymbol(target);
+        return symbol is not null && counters.Contains(symbol);
+    }
+
+    /// <summary>Locals the loop condition tests.</summary>
+    private static HashSet<ISymbol> CounterSymbols(IOperation? condition)
+    {
+        var symbols = new HashSet<ISymbol>(SymbolEqualityComparer.Default);
+        if (condition is null) return symbols;
+        foreach (var op in OperationTree.SelfAndDescendants(condition))
+        {
+            if (op is ILocalReferenceOperation local)
+                symbols.Add(local.Local);
+        }
+
+        return symbols;
+    }
+
+    /// <summary>
+    /// The enclosing body without the inner loop's own subtree, so the
+    /// inner loop's stepping does not read as a reset.
+    /// </summary>
+    private static IEnumerable<IOperation> OutsideInnerLoop(
+        IOperation outer, IOperation inner)
+    {
+        var stack = new Stack<IOperation>();
+        stack.Push(outer);
+        while (stack.Count > 0)
+        {
+            var current = stack.Pop();
+            if (ReferenceEquals(current, inner)) continue;
+            yield return current;
+            foreach (var child in current.ChildOperations)
+                stack.Push(child);
+        }
     }
 
     public static bool IsProgressOnly(IOperation body)
     {
-        foreach (var operation in DirectOps(body))
+        foreach (var operation in OperationTree.WithinLoopLevel(body))
         {
             if (operation is IInvocationOperation) return false;
             if (operation is IObjectCreationOperation) return false;
@@ -195,12 +355,6 @@ internal static class LoopBoundInferrer
         return true;
     }
 
-    private static bool IsBinaryPartition(IWhileLoopOperation loop)
-    {
-        var midSplit = Walk(loop.Body).Any(IsMidSplit);
-        var shrinks = Walk(loop.Body).Any(IsBoundShrink);
-        return midSplit && shrinks;
-    }
 
     private static bool IsMidSplit(IOperation operation) =>
         SizeResolver.Unwrap(operation) is IBinaryOperation
@@ -217,23 +371,6 @@ internal static class LoopBoundInferrer
             OperatorKind: BinaryOperatorKind.Add
                 or BinaryOperatorKind.Subtract
         };
-
-    private static IEnumerable<IOperation> DirectOps(IOperation root)
-    {
-        yield return root;
-        if (root is IForLoopOperation
-            or IForEachLoopOperation
-            or IWhileLoopOperation)
-        {
-            yield break;
-        }
-
-        foreach (var child in root.ChildOperations)
-        {
-            foreach (var nested in DirectOps(child))
-                yield return nested;
-        }
-    }
 
     private static bool IsDoubling(IOperation operation)
     {
@@ -285,13 +422,4 @@ internal static class LoopBoundInferrer
             ConstantValue.Value: 2
         };
 
-    private static IEnumerable<IOperation> Walk(IOperation root)
-    {
-        yield return root;
-        foreach (var child in root.ChildOperations)
-        {
-            foreach (var nested in Walk(child))
-                yield return nested;
-        }
-    }
 }

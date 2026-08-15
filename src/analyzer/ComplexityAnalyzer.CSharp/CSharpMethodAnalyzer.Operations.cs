@@ -1,4 +1,5 @@
 using ComplexityAnalyzer.Core;
+using ComplexityAnalyzer.DotNet;
 using Microsoft.CodeAnalysis;
 using Microsoft.CodeAnalysis.Operations;
 
@@ -37,6 +38,57 @@ public sealed partial class CSharpMethodAnalyzer
     /// </list>
     /// </remarks>
     internal ComposedCost Analyze(IOperation operation, AnalysisState state)
+    {
+        state.Token.ThrowIfCancellationRequested();
+        if (state.OperationDepth >= AnalysisState.MaxOperationDepth)
+            return TooDeep(operation, state);
+
+        state.OperationDepth++;
+        try
+        {
+            return AnalyzeOperation(operation, state);
+        }
+        finally
+        {
+            state.OperationDepth--;
+        }
+    }
+
+    /// <summary>
+    /// Refuses to recurse further rather than risking the stack. The
+    /// result is an honest unknown, not a constant: work that was not
+    /// examined has not been shown to be free.
+    /// </summary>
+    private static ComposedCost TooDeep(
+        IOperation operation, AnalysisState state)
+    {
+        state.Note(
+            AnalysisConfidence.Unknown,
+            "The expression nests deeper than the analyzer walks, so "
+            + "part of this method was not examined.");
+        return new ComposedCost
+        {
+            Time = Cx.Unknown("nesting depth"),
+            Space = Cx.Unknown("nesting depth"),
+            Confidence = AnalysisConfidence.Unknown,
+            Evidence = ComplexityEvidence.Leaf(
+                "depth",
+                "nesting limit reached",
+                Cx.Unknown("nesting depth"),
+                RoslynSpans.Of(operation)),
+            Warnings = new[]
+            {
+                new AnalysisWarning(
+                    "Analysis stopped at "
+                    + AnalysisState.MaxOperationDepth
+                    + " levels of nesting.",
+                    RoslynSpans.Of(operation)),
+            },
+        };
+    }
+
+    private ComposedCost AnalyzeOperation(
+        IOperation operation, AnalysisState state)
     {
         if (operation.Syntax is not null
             && state.UnreachableSyntax.Contains(operation.Syntax))
@@ -149,7 +201,8 @@ public sealed partial class CSharpMethodAnalyzer
         HeapBoundDetector.Detect(loop.Body, state);
         var (bound, label) = LoopBoundInferrer.Infer(loop, state);
         if (state.CurrentLoopBound is not null
-            && LoopBoundInferrer.IsProgressOnly(loop.Body))
+            && LoopBoundInferrer.IsProgressOnly(loop.Body)
+            && !LoopBoundInferrer.ResetsCounter(loop, state))
         {
             bound = Cx.One;
             label = "amortized pointer step";
@@ -177,9 +230,12 @@ public sealed partial class CSharpMethodAnalyzer
             return AnalyzeLoop(loop.Body, bound, label, loop, state);
 
         var previous = state.CurrentLoopBound;
+        var previousBody = state.CurrentLoopBody;
         state.CurrentLoopBound = bound;
+        state.CurrentLoopBody = loop.Body;
         var body = Analyze(loop.Body, state);
         state.CurrentLoopBound = previous;
+        state.CurrentLoopBody = previousBody;
         var combined = CostComposer.Sequential(
             new[] { move, body }, RoslynSpans.Of(loop.Body));
         NoteUnboundedHeaps(bound, state);
@@ -196,9 +252,12 @@ public sealed partial class CSharpMethodAnalyzer
         AnalysisState state)
     {
         var previous = state.CurrentLoopBound;
+        var previousBody = state.CurrentLoopBody;
         state.CurrentLoopBound = bound;
+        state.CurrentLoopBody = body;
         var bodyCost = Analyze(body, state);
         state.CurrentLoopBound = previous;
+        state.CurrentLoopBody = previousBody;
         NoteUnboundedHeaps(bound, state);
         NoteLoopShape(label, state);
         return CostComposer.Loop(bound, bodyCost, label, RoslynSpans.Of(loop));
@@ -306,17 +365,57 @@ public sealed partial class CSharpMethodAnalyzer
     private ComposedCost AnalyzePropertyRead(
         IPropertyReferenceOperation prop, AnalysisState state)
     {
-        if (prop.Parent is IAssignmentOperation) 
+        if (prop.Parent is IAssignmentOperation)
             return AnalyzeChildren(prop, state);
         var getter = prop.Property.GetMethod;
         if (getter is null) return AnalyzeChildren(prop, state);
         if (prop.Property.Name is "Length" or "Count" or "Chars")
             return AnalyzeChildren(prop, state);
-        if (getter.DeclaringSyntaxReferences.Length == 0)
+        if (getter.DeclaringSyntaxReferences.Length > 0)
+        {
+            return prop.SemanticModel is { } model
+                ? AnalyzeSymbol(getter, model, state)
+                : AnalyzeChildren(prop, state);
+        }
+
+        return MetadataPropertyRead(prop, getter, state);
+    }
+
+    /// <summary>
+    /// A property whose getter is not in this compilation. Reading a
+    /// stored field or a fixed-size view is O(1); everything else is
+    /// executable code with no summary, and gets carried as a call
+    /// rather than assumed free.
+    /// </summary>
+    private ComposedCost MetadataPropertyRead(
+        IPropertyReferenceOperation prop,
+        IMethodSymbol getter,
+        AnalysisState state)
+    {
+        // An auto-property on a type declared in this compilation has
+        // no getter syntax, but it is a field read, not unresolved work.
+        if (prop.Property.ContainingType?.OriginalDefinition
+            .DeclaringSyntaxReferences.Length > 0)
+        {
             return AnalyzeChildren(prop, state);
-        if (prop.SemanticModel is not { } model)
+        }
+
+        var type = SymbolKeys.TypeName(prop.Property.ContainingType);
+        var key = SymbolKeys.ForMethod(getter.OriginalDefinition);
+        if (key is not null && _catalog.TryGet(key, out _))
             return AnalyzeChildren(prop, state);
-        return AnalyzeSymbol(getter, model, state);
+        if (ConstantTimePrimitives.IsConstantAccessor(type, getter.Name))
+            return AnalyzeChildren(prop, state);
+
+        var children = AnalyzeChildren(prop, state);
+        var call = UnknownCall(
+            getter.Name,
+            RoslynSpans.Of(prop),
+            $"{type ?? prop.Property.Name}.{prop.Property.Name} has no "
+            + "cost summary, so reading it is carried as a call instead "
+            + "of assumed constant");
+        return CostComposer.Sequential(
+            new[] { children, call }, RoslynSpans.Of(prop));
     }
 
     private ComposedCost AnalyzeBinary(

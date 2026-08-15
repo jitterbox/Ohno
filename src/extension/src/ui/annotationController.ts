@@ -308,6 +308,7 @@ export class AnnotationController implements vscode.Disposable {
     };
 
     for (const fn of functions) {
+      if (!shouldAnnotate(fn, config)) continue;
       const line = fn.signatureRange.startLine;
       // const hover = buildMarkdown(fn, editor.document.uri);
       headlines.push({
@@ -358,6 +359,36 @@ export class AnnotationController implements vscode.Disposable {
     this.decorations = createDecorationSet(this.extensionPath);
     this.refresh();
   }
+}
+
+/**
+ * Whether a result earns an inline decoration.
+ *
+ * Accessors and operators are always analyzed and always appear in the
+ * panel — an expensive getter is exactly what this tool is for. But a
+ * class of plain properties would otherwise line the margin with
+ * `O(1)`, which is noise, not information. So by default they are
+ * annotated only when the result says something: a non-constant bound,
+ * or anything less than high confidence.
+ */
+export function shouldAnnotate(
+  fn: FunctionComplexity,
+  config: OhnoConfig,
+): boolean {
+  if (fn.kind !== 'property' && fn.kind !== 'operator') return true;
+  if (config.accessors === 'always') return true;
+  if (config.accessors === 'off') return false;
+  return !isTrivial(fn);
+}
+
+function isTrivial(fn: FunctionComplexity): boolean {
+  return fn.confidence === 'high'
+    && constant(fn.time)
+    && constant(fn.space);
+}
+
+function constant(bound: string): boolean {
+  return bound.replace(/\s+/g, '') === 'O(1)';
 }
 
 function collectNested(

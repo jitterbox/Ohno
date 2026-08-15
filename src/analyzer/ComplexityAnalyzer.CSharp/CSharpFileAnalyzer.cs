@@ -55,7 +55,7 @@ public sealed class CSharpFileAnalyzer
             token.ThrowIfCancellationRequested();
             if (!TryGetMethod(node, model, out var method, out var signature))
                 continue;
-            var result = _methods.Analyze(method, model, tier);
+            var result = _methods.Analyze(method, model, tier, token);
             var range = RoslynSpans.Of(node) ?? signature;
             functions.Add(
                 new AnalyzedFunction(method, result, range, signature));
@@ -93,13 +93,34 @@ public sealed class CSharpFileAnalyzer
             return new FileAnalysis([], [warning]);
         }
 
-        var result = _methods.AnalyzeSelection(method, model, span, tier);
+        var result = _methods.AnalyzeSelection(
+            method, model, span, tier, token);
         var range = result.Evidence.Span ?? span;
+        // File-level bind warnings are a property of the document, not
+        // of the span, and the document pass already produced them.
+        // Recomputing here would force a full bind of every method body
+        // in the file just to score a two-line selection.
         return new FileAnalysis(
             [new AnalyzedFunction(method, result, range, span, true)],
-            BindWarnings.For(model));
+            []);
     }
 
+    /// <summary>
+    /// Every member with a body worth costing.
+    /// </summary>
+    /// <remarks>
+    /// Accessors and operators carry real code — an expensive property
+    /// getter is one of the easiest places for an O(n) to hide — and
+    /// their cost already flows into every caller, so leaving them off
+    /// the result list only hid them from the reader.
+    /// <para>
+    /// Auto-implemented accessors (<c>get;</c>) are skipped: there is
+    /// no body to analyze, and emitting a constant result per property
+    /// would bloat every response for a class of plain data. Whether a
+    /// trivial result is *annotated* is a presentation choice the
+    /// extension makes.
+    /// </para>
+    /// </remarks>
     private static bool TryGetMethod(
         SyntaxNode node,
         SemanticModel model,
@@ -112,19 +133,39 @@ public sealed class CSharpFileAnalyzer
         {
             MethodDeclarationSyntax m => model.GetDeclaredSymbol(m),
             ConstructorDeclarationSyntax c => model.GetDeclaredSymbol(c),
+            OperatorDeclarationSyntax o => model.GetDeclaredSymbol(o),
+            ConversionOperatorDeclarationSyntax c =>
+                model.GetDeclaredSymbol(c),
+            AccessorDeclarationSyntax a when HasBody(a) =>
+                model.GetDeclaredSymbol(a),
+            PropertyDeclarationSyntax { ExpressionBody: not null } p =>
+                (model.GetDeclaredSymbol(p) as IPropertySymbol)?.GetMethod,
+            IndexerDeclarationSyntax { ExpressionBody: not null } i =>
+                (model.GetDeclaredSymbol(i) as IPropertySymbol)?.GetMethod,
             _ => null,
         };
         if (symbol is not IMethodSymbol methodSymbol) return false;
         method = methodSymbol;
-        var id = node switch
+        signature = SignatureOf(node) ?? RoslynSpans.Of(node) ?? signature;
+        return true;
+    }
+
+    private static bool HasBody(AccessorDeclarationSyntax accessor) =>
+        accessor.Body is not null || accessor.ExpressionBody is not null;
+
+    private static LineSpan? SignatureOf(SyntaxNode node) =>
+        node switch
         {
             MethodDeclarationSyntax m => RoslynSpans.Of(m.Identifier),
             ConstructorDeclarationSyntax c => RoslynSpans.Of(c.Identifier),
+            OperatorDeclarationSyntax o => RoslynSpans.Of(o.OperatorToken),
+            ConversionOperatorDeclarationSyntax c =>
+                RoslynSpans.Of(c.Type),
+            AccessorDeclarationSyntax a => RoslynSpans.Of(a.Keyword),
+            PropertyDeclarationSyntax p => RoslynSpans.Of(p.Identifier),
+            IndexerDeclarationSyntax i => RoslynSpans.Of(i.ThisKeyword),
             _ => RoslynSpans.Of(node),
         };
-        signature = id ?? RoslynSpans.Of(node) ?? signature;
-        return true;
-    }
 
     private void TryAddEntryPoint(
         SemanticModel model,
@@ -149,7 +190,7 @@ public sealed class CSharpFileAnalyzer
         var signature = RoslynSpans.Of(globals[0])
             ?? new LineSpan(0, 0, 0, 0);
         var range = SpanOfGlobals(globals, signature);
-        var result = _methods.Analyze(main, model, tier);
+        var result = _methods.Analyze(main, model, tier, token);
         functions.Insert(
             0, new AnalyzedFunction(main, result, range, signature));
     }

@@ -142,6 +142,92 @@ public class ServerProtocolTests
         Assert.Equal("O(m)", fn.Time);
     }
 
+    /// <summary>
+    /// Document and selection analysis are both Fast and both arrive on
+    /// <c>ohno/analyze</c>. They used to share one cancellation slot,
+    /// so an edit with an active selection — which schedules both —
+    /// had the document request cancel the selection every time.
+    /// </summary>
+    [Fact]
+    public async Task Selection_And_Document_DoNotCancelEachOther()
+    {
+        var text = """
+            using System;
+            public static class S
+            {
+                public static int Nested(int[] a, int[] b)
+                {
+                    var sum = 0;
+                    foreach (var x in a)
+                        foreach (var y in b)
+                            sum += x * y;
+                    return sum;
+                }
+            }
+            """;
+        var inner = SelectionSpan(text);
+        var service = new AnalyzerService();
+
+        var selection = service.Analyze(new AnalyzeRequest(
+            "file:///tmp/Both.cs", text, 1, "fast",
+            new RangeDto(
+                inner.StartLine,
+                inner.StartCharacter,
+                inner.EndLine,
+                inner.EndCharacter)));
+        var document = service.Analyze(new AnalyzeRequest(
+            "file:///tmp/Both.cs", text, 1, "fast"));
+
+        var responses = await Task.WhenAll(selection, document);
+
+        var fromSelection = Assert.Single(responses[0].Functions);
+        Assert.EndsWith("(selection)", fromSelection.Name);
+        Assert.Contains(
+            responses[1].Functions, f => f.Name == "Nested");
+    }
+
+    /// <summary>
+    /// Within a kind, a newer request still supersedes the one in
+    /// flight — that is what keeps the debounce path from queueing up
+    /// stale work.
+    /// </summary>
+    [Fact]
+    public async Task NewerDocumentRequest_SupersedesTheOlderOne()
+    {
+        const string text = """
+            public static class S
+            {
+                public static int Sum(int[] values)
+                {
+                    var total = 0;
+                    foreach (var value in values) total += value;
+                    return total;
+                }
+            }
+            """;
+        var service = new AnalyzerService();
+
+        var first = service.Analyze(new AnalyzeRequest(
+            "file:///tmp/Super.cs", text, 1, "fast"));
+        var second = service.Analyze(new AnalyzeRequest(
+            "file:///tmp/Super.cs", text, 2, "fast"));
+
+        var latest = await second;
+        Assert.Equal(2, latest.Version);
+        Assert.Contains(latest.Functions, f => f.Name == "Sum");
+
+        // The superseded request may complete or cancel; either is
+        // fine, but it must not fault.
+        try
+        {
+            await first;
+        }
+        catch (OperationCanceledException)
+        {
+            // Expected when the newer request won the race.
+        }
+    }
+
     private static LineSpan SelectionSpan(string source)
     {
         var tree = CompilationFactory.SourceTree(

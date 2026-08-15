@@ -103,13 +103,22 @@ public sealed class DeepWorkspace : IDisposable
         IsReady = false;
         _workspace?.Dispose();
         _workspace = MSBuildWorkspace.Create();
-        if (full.EndsWith(".sln", StringComparison.OrdinalIgnoreCase))
+        if (IsSolution(full))
             await _workspace.OpenSolutionAsync(full, cancellationToken: token);
         else
             await _workspace.OpenProjectAsync(full, cancellationToken: token);
         LastError = null;
         IsReady = true;
     }
+
+    /// <summary>
+    /// Both solution formats. <c>MSBuildWorkspace</c> has loaded
+    /// <c>.slnx</c> — the XML solution format — since Roslyn 5.0;
+    /// routing it to <c>OpenProjectAsync</c> would fail to parse.
+    /// </summary>
+    internal static bool IsSolution(string path) =>
+        path.EndsWith(".sln", StringComparison.OrdinalIgnoreCase)
+        || path.EndsWith(".slnx", StringComparison.OrdinalIgnoreCase);
 
     private async Task<SemanticModelLookup?> ModelOfAsync(
         string filePath,

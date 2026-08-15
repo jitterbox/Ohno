@@ -38,36 +38,84 @@ public sealed partial class CSharpMethodAnalyzer
         if (method.DeclaringSyntaxReferences.Length > 0)
             return AnalyzeUserCall(call, method, state);
 
+        if (RegexFacts.IsLinear(call, state))
+            return LinearRegexCall(call, state);
+
         if (IsOpaqueSystem(method))
             return UnknownCall(method.Name, RoslynSpans.Of(call),
                 "this API's cost is not a fixed primitive");
 
-        if (IsSystemPrimitive(method))
+        if (IsKnownConstant(method))
         {
-            var confidence = IsNoCostPrimitive(method)
-                ? AnalysisConfidence.High
-                : AnalysisConfidence.Medium;
-            if (confidence < AnalysisConfidence.High)
-            {
-                state.Note(
-                    AnalysisConfidence.Medium,
-                    "A System API was treated as a constant-time primitive "
-                    + "without a catalog summary.");
-            }
-
             return ComposedCost.Of(
                 Cx.One,
                 Cx.One,
                 "call",
                 method.Name,
                 RoslynSpans.Of(call),
-                confidence);
+                AnalysisConfidence.High);
         }
 
         return UnknownCall(
             method.Name,
             RoslynSpans.Of(call),
-            $"unresolved call {method.Name}");
+            NoSummaryReason(method));
+    }
+
+    /// <summary>
+    /// A match on the non-backtracking engine, which .NET guarantees
+    /// scans the input once. The bound is stated in the subject's
+    /// length; the pattern is a constant of the source, not a
+    /// dimension of the input.
+    /// </summary>
+    private ComposedCost LinearRegexCall(
+        IInvocationOperation call, AnalysisState state)
+    {
+        var name = call.TargetMethod.Name;
+        var subject = RegexFacts.Subject(call);
+        var size = subject is null
+            ? Cx.Var("n")
+            : SizeResolver.Resolve(subject, state);
+        var materializes = RegexFacts.Materializes(name);
+        if (materializes) state.Retained.Add(size);
+
+        state.Note(
+            AnalysisConfidence.Medium,
+            "Regex cost assumes the non-backtracking engine's linear "
+            + "scan; the bound covers the input, not the pattern.");
+
+        return ComposedCost.Of(
+            size,
+            materializes ? size : Cx.One,
+            "call",
+            name + " (non-backtracking)",
+            RoslynSpans.Of(call),
+            AnalysisConfidence.Medium);
+    }
+
+    /// <summary>
+    /// Constant time must be positively known. A member is O(1) only
+    /// when the catalog or <see cref="ConstantTimePrimitives"/> says so;
+    /// there is no "it looked like a primitive" fallback, because that
+    /// is how an <c>OrderBy</c> or a <c>File.ReadAllLines</c> silently
+    /// became free.
+    /// </summary>
+    private static bool IsKnownConstant(IMethodSymbol method) =>
+        ConstantTimePrimitives.IsConstant(
+            SymbolKeys.TypeName(method.ContainingType), method.Name);
+
+    /// <summary>
+    /// Names the member so the panel can say which summary is missing
+    /// rather than just "unresolved call".
+    /// </summary>
+    private static string NoSummaryReason(IMethodSymbol method)
+    {
+        var type = SymbolKeys.TypeName(method.ContainingType);
+        var name = type is null
+            ? method.Name
+            : $"{type}.{method.Name}";
+        return $"{name} has no cost summary, so its work is carried as "
+            + $"C({method.Name}) instead of assumed constant";
     }
 
     private bool PipelineSorts(IInvocationOperation call)
@@ -88,23 +136,6 @@ public sealed partial class CSharpMethodAnalyzer
         }
 
         return false;
-    }
-
-    private static bool IsNoCostPrimitive(IMethodSymbol method) =>
-        method.Name is "KeepAlive" or "GetHashCode" or "Equals"
-            or "ToString"
-        || SymbolKeys.TypeName(method.ContainingType) == "System.GC";
-
-    private static bool IsSystemPrimitive(IMethodSymbol method)
-    {
-        var ns = method.ContainingNamespace?.ToDisplayString() ?? "";
-        if (!ns.StartsWith("System", StringComparison.Ordinal)
-            && !ns.StartsWith("Microsoft", StringComparison.Ordinal))
-        {
-            return false;
-        }
-
-        return !DimensionInferrer.IsCollection(method.ContainingType);
     }
 
     private ComposedCost FromCatalog(
@@ -230,14 +261,52 @@ public sealed partial class CSharpMethodAnalyzer
             .ToArray();
         var cataloged = CatalogCtor(create, state);
         var copy = cataloged ?? CollectionCopy(create, state);
-        var ctor = copy ?? ComposedCost.Unit(
-            "alloc",
-            create.Type?.Name ?? "new",
-            RoslynSpans.Of(create));
+        var ctor = copy ?? UncatalogedCreation(create);
         return args.Length == 0
             ? ctor
             : CostComposer.Sequential(
                 args.Append(ctor).ToArray(), RoslynSpans.Of(create));
+    }
+
+    /// <summary>
+    /// A constructor the catalog does not describe. Allocating a
+    /// fixed-size object is O(1); handing a framework constructor
+    /// arguments it might scan is not, so that becomes
+    /// <c>C(.ctor)</c> rather than free.
+    /// </summary>
+    private static ComposedCost UncatalogedCreation(
+        IObjectCreationOperation create)
+    {
+        var name = create.Type?.Name ?? "new";
+        var type = SymbolKeys.TypeName(create.Type);
+        var arity = create.Arguments.Length;
+
+        if (IsInSource(create)
+            || ConstantTimePrimitives.IsConstantConstruction(type, arity))
+        {
+            return ComposedCost.Unit("alloc", name, RoslynSpans.Of(create));
+        }
+
+        return UnknownCall(
+            $"{name}.ctor",
+            RoslynSpans.Of(create),
+            $"{type ?? name} has no constructor cost summary, so its "
+            + "work is carried as a call instead of assumed constant");
+    }
+
+    /// <summary>
+    /// True when the constructed type is declared in this compilation,
+    /// including the implicitly declared parameterless constructor a
+    /// source type gets for free. Those bodies are visible (or empty),
+    /// so they are not the unresolved case.
+    /// </summary>
+    private static bool IsInSource(IObjectCreationOperation create)
+    {
+        var ctor = create.Constructor?.OriginalDefinition;
+        if (ctor is not null && ctor.DeclaringSyntaxReferences.Length > 0)
+            return true;
+        return create.Type?.OriginalDefinition
+            .DeclaringSyntaxReferences.Length > 0;
     }
 
     private ComposedCost? CatalogCtor(
@@ -288,11 +357,42 @@ public sealed partial class CSharpMethodAnalyzer
     {
         if (call.Instance is not null)
             return SizeResolver.Resolve(call.Instance, state);
+        if (SizeResolver.IsTwoSourceOperator(call.TargetMethod.Name)
+            && call.Arguments.Length > 0)
+        {
+            return SizeResolver.Resolve(call, state);
+        }
+
         if (call.TargetMethod.IsExtensionMethod && call.Arguments.Length > 0)
             return SizeResolver.Resolve(call.Arguments[0].Value, state);
         if (call.Arguments.Length > 0)
-            return SizeResolver.Resolve(call.Arguments[0].Value, state);
+            return SizeResolver.Resolve(SourceArgument(call), state);
         return Cx.Var("n");
+    }
+
+    /// <summary>
+    /// The argument that carries the size for a static helper. For
+    /// <c>string.Join(", ", names)</c> the first argument is the
+    /// separator, so taking argument zero would size the call by a
+    /// literal and report constant time.
+    /// </summary>
+    private static IOperation SourceArgument(IInvocationOperation call)
+    {
+        var first = call.Arguments[0].Value;
+        if (DimensionInferrer.IsCollection(first.Type)
+            && SizeResolver.Unwrap(first) is not ILiteralOperation)
+        {
+            return first;
+        }
+
+        foreach (var argument in call.Arguments)
+        {
+            var value = argument.Value;
+            if (SizeResolver.Unwrap(value) is ILiteralOperation) continue;
+            if (DimensionInferrer.IsCollection(value.Type)) return value;
+        }
+
+        return first;
     }
 
     private ComplexityExpression ApplyHeapBound(
