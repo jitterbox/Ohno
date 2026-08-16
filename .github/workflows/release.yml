@@ -74,6 +74,9 @@ jobs:
         working-directory: src/extension
         run: |
           npm ci
+          npm run compile
+          node ../../scripts/sync-extension-docs.mjs
+          npm run package:check
           npx --yes @vscode/vsce package \
             --target ${{ matrix.vsce_target }} \
             --no-rewrite-relative-links \

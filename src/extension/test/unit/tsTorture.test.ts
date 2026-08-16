@@ -14,6 +14,10 @@ const files = [
     rel: 'samples/javascript/JsTorture.js',
     uri: 'file:///JsTorture.js',
   },
+  {
+    rel: 'samples/typescript/TsRanking.ts',
+    uri: 'file:///TsRanking.ts',
+  },
 ];
 
 describe.each(files)('torture $rel', ({ rel, uri }) => {

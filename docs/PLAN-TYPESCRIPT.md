@@ -10,7 +10,7 @@ scoping pass.
 | Question | Choice |
 |---|---|
 | Surface | `.ts`, `.tsx`, `.js`, `.jsx` (and `languageId` `typescript` / `javascript` / `typescriptreact` / `javascriptreact`) |
-| Default | **Opt-in** — `ohno.languages.typescript` / `ohno.languages.javascript` default **false** until the catalog and honesty match C# |
+| Default | **On** after Phase 13 — `ohno.languages.typescript` / `javascript` default **true**. Untyped JS stays `C(name)` / Unknown |
 | Engine | TypeScript in a **Node worker thread**, using `ts.createProgram` / `program.getTypeChecker()`. Algebra is **shared conceptually** with C# Core, not by sending TS through the Roslyn process |
 
 Angular templates, Vue/Svelte SFCs, and `.mts`/`.cts` as first-class
@@ -91,27 +91,20 @@ every keystroke.
 
 ### Fast vs deep (TS analog of CompilationFactory / MSBuildWorkspace)
 
-**Fast (default)**
-
-1. Find `tsconfig.json` / `jsconfig.json` by walking up from the file
-   (same shape as `SolutionBinder` / `projectNear`).
-2. If found **and** a cached `Program` for that config is ready, use
-   it (wait on the workspace gate — same as C# “fast uses project
-   when ready”).
-3. Else ad-hoc: one `SourceFile` (`ScriptKind` from languageId),
-   `lib.es*.d.ts` from the bundled `typescript` package, `noResolve`
-   **false** only for relative imports we can read from disk; missing
-   modules stay unresolved (`C(name)`), never assumed O(1).
+**Fast (default)** is always ad-hoc: one `SourceFile` (`ScriptKind`
+from languageId) plus `lib.es*.d.ts` from the bundled `typescript`
+package. Same-file inlining only. Missing modules stay unresolved
+(`C(name)`), never assumed O(1). Fast does **not** load `tsconfig`.
 
 **Deep** (`Ohno: Run Deep Analysis`)
 
-- Parse the config with `ts.readConfigFile` +
-  `parseJsonConfigFileContent`.
-- `createProgram` with project references (`SolutionBuilder` only if
-  we later need cross-project `.d.ts` emit; v1 can flatten
-  references as additional root files).
-- Record `LastError` if the config is missing or the program fails
-  to load; fall back to ad-hoc and **do not invent a bound**.
+- Walk up for `tsconfig.json` / `jsconfig.json`.
+- Parse with `ts.readConfigFile` + `parseJsonConfigFileContent`
+  (mtime-cached). Overlay the buffer via `realpath`.
+- Same-`Program` inlining for resolved declarations (not
+  `node_modules`). LRU-evict cached programs.
+- If the config is missing or the program fails to load, fall back
+  to ad-hoc and **do not invent a bound**.
 
 **One analyzer for TS and JS.** The TypeScript compiler is the JS
 compiler. `ScriptKind` is `TS` / `TSX` / `JS` / `JSX` from
@@ -137,8 +130,9 @@ These are the only product changes needed so C# does not regress and
 TS can plug in.
 
 1. **`BUILTIN_LANGUAGES`** — add `typescript`, `javascript`,
-   `typescriptreact`, `javascriptreact`, all `enabledByDefault: false`.
-   `documentSelectors()` and `ohno.languages.*` follow automatically.
+   `typescriptreact`, `javascriptreact`. Phase 13 flipped
+   `enabledByDefault` to **true**. `documentSelectors()` and
+   `ohno.languages.*` follow automatically.
 2. **`package.json`** — `onLanguage:typescript` (and js/tsx/jsx);
    four `ohno.languages.*` properties; activation still works when
    only C# is on.
@@ -370,21 +364,26 @@ not change in any phase.
 
 ### Later (not v1)
 
-- Flip default to on once `TsBclCatalog` + honesty fixtures are as
-  tight as `BclCatalogTests`.
+Capability work that closes the gap with C# — cardinality,
+remaining patterns, closures / `this` / computed keys, catalog
+depth, space tables, same-`Program` inlining — lives in
+[PLAN-TYPESCRIPT-PARITY.md](PLAN-TYPESCRIPT-PARITY.md). That plan
+does not change the locked decisions above.
+
+Still out of both plans until explicitly scoped:
+
 - Angular templates (second frontend: Angular compiler or
   `HtmlParser` + component class types).
 - Prisma/Knex as queryable-soft.
 - `SolutionBuilder` for project references that only exist as
   emitted `.d.ts`.
-- Open VSX / Marketplace copy that mentions TS.
 
 ## Risks
 
 | Risk | Mitigation |
 |---|---|
 | Typecheck cost on large `node_modules` | Do not pull the whole program into the walker; query checker only on visited nodes. Cache `Program`. Debounce unchanged. |
-| `any` everywhere in JS | Opt-in default; `C(name)` not O(1); document it |
+| `any` everywhere in JS | `C(name)` not O(1); document that untyped JS is looser |
 | Name-only catalog regressions | Key by containing type from the checker, same lesson as `get_Item` |
 | Dual algebra drift | Golden parity tests in CI; C# Core remains the spec |
 | Worker crash | Facade returns a warning + empty functions; do not take down the extension host or the C# server |

@@ -3,7 +3,7 @@ import type { RecognizedPattern } from '../engine';
 import { rangeOf } from '../walk/functions';
 import { isIndexScan, loopFacts, queueFromCondition } from './facts';
 import { isUnprovenCountdown } from '../walk/loopShapes';
-import { annotatePattern, unknownPattern } from './make';
+import { annotatePattern, rangePattern, unknownPattern } from './make';
 import {
   callIsRegexUse,
   callIsTrivialRegex,
@@ -19,8 +19,11 @@ export function recognize(
   walk(root, source, checker, false, hits);
   const seen = new Set<string>();
   return hits.filter((p) => {
-    if (seen.has(p.id)) return false;
-    seen.add(p.id);
+    const key = [
+      p.id, p.range?.startLine, p.range?.startCharacter,
+    ].join(':');
+    if (seen.has(key)) return false;
+    seen.add(key);
     return true;
   });
 }
@@ -52,6 +55,13 @@ function match(
     ?? awaitFor(node, span)
     ?? worklist(node, span)
     ?? unproven(node, span)
+    ?? yieldPat(node, span)
+    ?? compile(node, span)
+    ?? reflect(node, span)
+    ?? parallel(node, span)
+    ?? stream(node, checker, span)
+    ?? cache(node, checker, span)
+    ?? delegate(node, checker, span)
     ?? anyDispatch(node, checker, span);
 }
 
@@ -252,9 +262,157 @@ function anyDispatch(
     return undefined;
   }
   return unknownPattern(
-    'interface-dispatch',
+    'dynamic-dispatch',
     'Untyped dispatch',
     'the receiver is any or unknown, so the target is not fixed',
+    span,
+  );
+}
+
+function yieldPat(
+  node: ts.Node,
+  span: ReturnType<typeof rangeOf>,
+): RecognizedPattern | undefined {
+  if (node.kind !== ts.SyntaxKind.YieldExpression) return undefined;
+  return annotatePattern(
+    'iterator-yield',
+    'Iterator',
+    'cost depends on how many elements the caller consumes',
+    span,
+  );
+}
+
+function compile(
+  node: ts.Node,
+  span: ReturnType<typeof rangeOf>,
+): RecognizedPattern | undefined {
+  if (ts.isCallExpression(node) && callName(node) === 'eval') {
+    return unknownPattern(
+      'expression-compile',
+      'eval',
+      'the evaluated body is data, not a fixed method',
+      span,
+    );
+  }
+  if (ts.isNewExpression(node)
+    && node.expression.getText() === 'Function') {
+    return unknownPattern(
+      'expression-compile',
+      'Compiled function',
+      'the compiled body is data, not a fixed method',
+      span,
+    );
+  }
+  return undefined;
+}
+
+function reflect(
+  node: ts.Node,
+  span: ReturnType<typeof rangeOf>,
+): RecognizedPattern | undefined {
+  if (ts.isCallExpression(node)
+    && ts.isPropertyAccessExpression(node.expression)
+    && node.expression.expression.getText() === 'Reflect') {
+    return unknownPattern(
+      'reflection-dispatch',
+      'Reflect dispatch',
+      'the target is selected by name at runtime',
+      span,
+    );
+  }
+  if (!ts.isCallExpression(node)) return undefined;
+  if (!ts.isElementAccessExpression(node.expression)) return undefined;
+  const key = node.expression.argumentExpression;
+  if (key && ts.isStringLiteral(key)) return undefined;
+  return unknownPattern(
+    'reflection-dispatch',
+    'Computed call',
+    'the method name is data, not a fixed identifier',
+    span,
+  );
+}
+
+function parallel(
+  node: ts.Node,
+  span: ReturnType<typeof rangeOf>,
+): RecognizedPattern | undefined {
+  if (!ts.isCallExpression(node)) return undefined;
+  if (!ts.isPropertyAccessExpression(node.expression)) return undefined;
+  const recv = node.expression.expression.getText();
+  const name = node.expression.name.text;
+  if (recv !== 'Promise') return undefined;
+  if (name !== 'all' && name !== 'allSettled' && name !== 'race') {
+    return undefined;
+  }
+  return annotatePattern(
+    'parallel-loop',
+    'Promise combinator',
+    'elapsed time depends on scheduling and the element factories',
+    span,
+  );
+}
+
+function stream(
+  node: ts.Node,
+  checker: ts.TypeChecker,
+  span: ReturnType<typeof rangeOf>,
+): RecognizedPattern | undefined {
+  if (!ts.isCallExpression(node)) return undefined;
+  if (!ts.isPropertyAccessExpression(node.expression)) return undefined;
+  const type = checker.getTypeAtLocation(node.expression.expression);
+  const name = type.getSymbol()?.getName() ?? '';
+  if (!/Stream|Readable|Writable/.test(name)) return undefined;
+  return unknownPattern(
+    'stream-io',
+    'Stream I/O',
+    'the concrete stream may be memory, file, or network',
+    span,
+  );
+}
+
+function cache(
+  node: ts.Node,
+  checker: ts.TypeChecker,
+  span: ReturnType<typeof rangeOf>,
+): RecognizedPattern | undefined {
+  if (!ts.isCallExpression(node)) return undefined;
+  const name = callName(node);
+  if (name !== 'has' && name !== 'get') return undefined;
+  if (!ts.isPropertyAccessExpression(node.expression)) return undefined;
+  const type = checker.getTypeAtLocation(node.expression.expression);
+  const typeName = type.getSymbol()?.getName() ?? '';
+  if (typeName !== 'Map' && typeName !== 'WeakMap') return undefined;
+  return rangePattern(
+    'cache-history',
+    'Cache-dependent work',
+    'a hit is constant time; a miss repeats the full computation',
+    span,
+  );
+}
+
+function delegate(
+  node: ts.Node,
+  checker: ts.TypeChecker,
+  span: ReturnType<typeof rangeOf>,
+): RecognizedPattern | undefined {
+  if (!ts.isCallExpression(node)) return undefined;
+  const name = callName(node);
+  if (name === 'call' || name === 'apply' || name === 'bind') {
+    return unknownPattern(
+      'delegate-invoke',
+      'Function.call/apply/bind',
+      'the bound receiver and target body are not fixed here',
+      span,
+    );
+  }
+  if (!ts.isIdentifier(node.expression)) return undefined;
+  const symbol = checker.getSymbolAtLocation(node.expression);
+  const decl = symbol?.valueDeclaration;
+  if (!decl || !ts.isParameter(decl)) return undefined;
+  return unknownPattern(
+    'delegate-invoke',
+    'Callback invocation',
+    'the callback body is not known at this call site',
     span,
   );
 }

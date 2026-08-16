@@ -2,7 +2,10 @@ import { readFileSync } from 'node:fs';
 import { dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { analyzeDocument } from '../../src/analysis/typescript/analyze';
-import type { FunctionComplexity } from '../../src/analysis/types';
+import type {
+  AnalysisTier,
+  FunctionComplexity,
+} from '../../src/analysis/types';
 
 const root = resolve(
   dirname(fileURLToPath(import.meta.url)),
@@ -41,13 +44,14 @@ export function parseExpected(text: string): ExpectedCase[] {
 export function analyzeFile(
   rel: string,
   uri: string,
+  tier: AnalysisTier = 'fast',
 ): { text: string; functions: FunctionComplexity[] } {
   const text = readFileSync(repoPath(rel), 'utf8');
   const result = analyzeDocument({
     uri,
     text,
     version: 1,
-    tier: 'fast',
+    tier,
   });
   return { text, functions: result.functions };
 }
@@ -64,7 +68,7 @@ function nextExportName(
   start: number,
 ): string | undefined {
   for (let i = start; i < lines.length && i < start + 6; i++) {
-    const fn = /export\s+function\s+([A-Za-z_][A-Za-z0-9_]*)/
+    const fn = /export\s+function\s*\*?\s*([A-Za-z_][A-Za-z0-9_]*)/
       .exec(lines[i]);
     if (fn) return fn[1];
     const cnst = /export\s+const\s+([A-Za-z_][A-Za-z0-9_]*)\s*=/

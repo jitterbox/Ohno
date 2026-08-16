@@ -4,8 +4,10 @@ Audit target: `master` @ `6a8e397` (v0.1.2, "Return multiple algorithm
 approaches and re-analyze the editor selection").
 
 This document is the **findings** half. The **work plan** is
-[PLAN-2026-08.md](PLAN-2026-08.md). Nothing in the codebase was changed
-to produce this report.
+[PLAN-2026-08.md](PLAN-2026-08.md). TypeScript / JavaScript parity
+work that starts from these C# gaps is
+[PLAN-TYPESCRIPT-PARITY.md](PLAN-TYPESCRIPT-PARITY.md). Nothing in
+the codebase was changed to produce this report.
 
 Scope: (1) what the current Roslyn/.NET platform offers that Ohno does
 not yet use, (2) what the static resource-analysis literature says about

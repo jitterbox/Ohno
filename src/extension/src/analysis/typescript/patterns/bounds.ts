@@ -1,40 +1,57 @@
 import ts from 'typescript';
-import { namedDimension, type SizeState } from '../walk/sizes';
 import { unknown, type ComplexityExpression } from '../engine';
-
-export type WorklistKind = 'visit' | 'graph' | 'nodes' | 'unknown';
+import {
+  bindKey,
+  namedDimension,
+  type BindKey,
+  type SizeState,
+} from '../walk/sizes';
 import {
   isIndexScan,
   isShrink,
   loopFacts,
-  queueFromCondition,
+  queueIdent,
   receiverName,
 } from './facts';
 
+export type WorklistKind = 'visit' | 'graph' | 'nodes' | 'unknown';
+
 export interface BoundMaps {
-  heaps: Map<string, ComplexityExpression>;
-  worklists: Map<string, ComplexityExpression>;
-  worklistKind: Map<string, WorklistKind>;
+  heaps: Map<BindKey, ComplexityExpression>;
+  worklists: Map<BindKey, ComplexityExpression>;
+  worklistKind: Map<BindKey, WorklistKind>;
   reasons: string[];
+}
+
+export function emptyBoundMaps(): BoundMaps {
+  return {
+    heaps: new Map(),
+    worklists: new Map(),
+    worklistKind: new Map(),
+    reasons: [],
+  };
 }
 
 export function detectBounds(
   root: ts.Node,
   sizes: SizeState,
 ): BoundMaps {
-  const maps: BoundMaps = {
-    heaps: new Map(),
-    worklists: new Map(),
-    worklistKind: new Map(),
-    reasons: [],
-  };
+  const maps = emptyBoundMaps();
   const visit = (node: ts.Node): void => {
-    recordHeap(node, sizes, maps);
-    recordWorklist(node, sizes, maps);
+    noteBounds(node, sizes, maps);
     ts.forEachChild(node, visit);
   };
   visit(root);
   return maps;
+}
+
+export function noteBounds(
+  node: ts.Node,
+  sizes: SizeState,
+  maps: BoundMaps,
+): void {
+  recordHeap(node, sizes, maps);
+  recordWorklist(node, sizes, maps);
 }
 
 function recordHeap(
@@ -54,14 +71,15 @@ function recordHeap(
     && (cond.left.name.text === 'length' || cond.left.name.text === 'size')
     ? cond.left
     : undefined;
-  const queue = access
-    ? receiverName(access.expression)
+  const ident = access && ts.isIdentifier(access.expression)
+    ? access.expression
     : undefined;
-  if (!queue || !containsShrink(node.thenStatement, queue)) return;
-  const bound = ts.isIdentifier(cond.right)
-    ? namedDimension(sizes, cond.right.text)
-    : namedDimension(sizes, 'k');
-  maps.heaps.set(queue, bound);
+  if (!ident || !containsShrink(node.thenStatement, ident.text)) {
+    return;
+  }
+  if (!ts.isIdentifier(cond.right)) return;
+  const bound = namedDimension(sizes, cond.right.text);
+  maps.heaps.set(bindKey(sizes.checker, ident), bound);
   maps.reasons.push(
     'Collection size is assumed bounded by a length > k + shift check',
   );
@@ -73,14 +91,16 @@ function recordWorklist(
   maps: BoundMaps,
 ): void {
   if (!ts.isWhileStatement(node) && !ts.isDoStatement(node)) return;
-  const queue = queueFromCondition(node.expression);
-  if (!queue) return;
+  const ident = queueIdent(node.expression);
+  if (!ident) return;
+  const queue = ident.text;
+  const key = bindKey(sizes.checker, ident);
   const facts = loopFacts(node.statement);
   const indexScan = isIndexScan(node.expression);
   if (!facts.grows.has(queue)) return;
   if (!facts.shrinks.has(queue) && !indexScan) return;
   if (facts.successor) {
-    maps.worklistKind.set(queue, 'nodes');
+    maps.worklistKind.set(key, 'nodes');
     maps.reasons.push(
       'Worklist walks linked-list successors; iterations count nodes',
     );
@@ -88,7 +108,7 @@ function recordWorklist(
   }
   if (facts.visited) {
     const kind: WorklistKind = facts.edges ? 'graph' : 'visit';
-    maps.worklistKind.set(queue, kind);
+    maps.worklistKind.set(key, kind);
     maps.reasons.push(
       facts.edges
         ? 'Graph worklist counts vertices plus edges'
@@ -97,8 +117,8 @@ function recordWorklist(
     return;
   }
   if (facts.shrinkCount > facts.growCount) return;
-  maps.worklistKind.set(queue, 'unknown');
-  maps.worklists.set(queue, unknown('worklist'));
+  maps.worklistKind.set(key, 'unknown');
+  maps.worklists.set(key, unknown('worklist'));
   maps.reasons.push(
     'A refill worklist has no visit mark; iterations are not '
       + 'bounded by length',

@@ -345,7 +345,7 @@ export function Trap(height: number[]): number {
   return water;
 }
 
-// expected: O(C(iterate) + k n + m n log m + n p) / O(C(iterate) + k + n + p)
+// expected: O(k n + m n log m + n p) / O(k + n + p)
 export function GroupAnagrams(strs: string[]): string[][] {
   const groups = new Map<string, string[]>();
   for (const s of strs) {
@@ -483,7 +483,7 @@ export function JumpingOnClouds(nums: number[]): number {
   return jumps;
 }
 
-// expected: O(k + n) / O(1)
+// expected: O(m + n) / O(1)
 export function RepeatedString(s: string, n: number): number {
   let inS = 0;
   for (const c of s) if (c === 'a') inS++;
@@ -638,7 +638,7 @@ export function Candies(nums: number[]): number {
   return sum;
 }
 
-// expected: O(k n) / O(1)
+// expected: O(k n) / O(k n)
 export function CommonChild(s: string, text: string): number {
   const dp: number[][] = [];
   for (let i = 0; i <= s.length; i++) {
@@ -766,7 +766,7 @@ export function FloydWarshall(graph: number[][]): number[][] {
   return dist;
 }
 
-// expected: O(k n) / O(1)
+// expected: O(k n) / O(k n)
 export function Knapsack01(
   values: number[],
   weight: number[],

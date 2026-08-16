@@ -13,6 +13,9 @@ out/
 # Published analyzer (built by CI / local publish)
 src/extension/server/
 
+# Copied into the VSIX at package time
+src/extension/CHANGELOG.md
+
 # Test artifacts
 test-results/
 playwright-report/

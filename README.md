@@ -14,9 +14,10 @@ constant work is still O(1). That is the opposite of cyclomatic complexity
 which counts independent paths and says nothing about input size.
 
 C# is analyzed by a bundled [Roslyn](https://learn.microsoft.com/dotnet/csharp/roslyn-sdk/)
-server. TypeScript and JavaScript are opt-in (`ohno.languages.typescript`
-/ `javascript`) and run in a Node worker — a TS-only workspace does
-not start the Roslyn process.
+server. TypeScript and JavaScript run in a Node worker — a TS-only
+workspace does not start the Roslyn process. Typed TypeScript uses
+the same honesty rule as C#. Untyped JavaScript stays `C(name)` or
+Unknown rather than inventing a bound.
 
 ## What you see
 
@@ -47,11 +48,13 @@ than one approach remains, a hint asks you to narrow the selection.
 Clear the selection to return to the whole function. Inline
 annotations stay per-function; they do not follow the selection.
 
-Automatic analysis is the **fast** tier: it uses a loaded `.sln` or
+Automatic analysis is the **fast** tier. C# uses a loaded `.sln` or
 `.slnx`, or the `.csproj` found by walking up from the file, when
-that workspace is ready. Otherwise it uses an ad-hoc compilation of the
-buffer. Deep analysis (`Ohno: Run Deep Analysis`) waits for the
-project graph and records a warning if it has to fall back.
+that workspace is ready; otherwise it compiles the buffer ad-hoc.
+TypeScript and JavaScript fast analysis is always ad-hoc (the
+buffer plus the bundled `lib`). Deep analysis (`Ohno: Run Deep
+Analysis`) waits for the C# project graph, or builds a `tsconfig` /
+`jsconfig` `Program`, and records a warning if it has to fall back.
 
 ## What Ohno is not
 
@@ -93,8 +96,8 @@ still applies this same catalog.
 | Language | Default | Engine |
 |---|---|---|
 | C# | On | Roslyn `IOperation` + BCL/LINQ catalog |
-| TypeScript / TSX | Off | `ts.Program` + `TypeChecker` in a worker |
-| JavaScript / JSX | Off | Same worker; untyped receivers are `C(name)` |
+| TypeScript / TSX | On | `ts.Program` + `TypeChecker` in a worker |
+| JavaScript / JSX | On | Same worker; untyped receivers are `C(name)` |
 
 The TS/JS catalog is not versioned by `target`, same rule as the BCL
 table. Untyped `arr.sort()` is `C(sort)`, not invented O(1).
@@ -115,10 +118,10 @@ table. Untyped `arr.sort()` is `C(sort)`, not invented O(1).
 |---|---|---|
 | `ohno.enabled` | `true` | Master switch |
 | `ohno.languages.csharp` | `true` | Analyze C# |
-| `ohno.languages.typescript` | `false` | Analyze `.ts` (opt-in) |
-| `ohno.languages.javascript` | `false` | Analyze `.js` (opt-in) |
-| `ohno.languages.typescriptreact` | `false` | Analyze `.tsx` (opt-in) |
-| `ohno.languages.javascriptreact` | `false` | Analyze `.jsx` (opt-in) |
+| `ohno.languages.typescript` | `true` | Analyze `.ts` |
+| `ohno.languages.javascript` | `true` | Analyze `.js` (untyped stays `C(name)`) |
+| `ohno.languages.typescriptreact` | `true` | Analyze `.tsx` |
+| `ohno.languages.javascriptreact` | `true` | Analyze `.jsx` |
 | `ohno.analysis.tier` | `fast` | Reserved; deep analysis is on demand (`Ohno: Run Deep Analysis`) |
 | `ohno.annotations.mode` | `inline` | Editor annotations: `inline`, `codelens`, or `off` |
 | `ohno.annotations.nestingDepth` | `2` | Nested subtotal depth |
@@ -251,6 +254,8 @@ Fixtures used by the test suite:
 | `samples/roslyn/RoslynComplexityEdgeCases.cs` | Adversarial / inconclusive hazards |
 | `samples/roslyn/RoslynSpaceComplexityPatterns.cs` | Peak-space idioms |
 | `samples/roslyn/RoslynSpaceComplexityCombinations.cs` | Combined time + space |
+| `samples/typescript/Ts*.ts` | Typed TS catalog, torture, ranking, space |
+| `samples/javascript/Js*.js` | JS honesty: untyped stays `C(name)` |
 
 Release history is in [CHANGELOG.md](CHANGELOG.md).
 
@@ -269,6 +274,8 @@ These are intentional limits, not missing tickets:
 | Every `#if` configuration | One compilation: the project's defines, or none on ad-hoc. Other `#if` bodies are invisible. |
 | `.razor` / `.cshtml` / `.csx` | Not a C# document. Ohno does not run. |
 | `IQueryable`, `dynamic`, expression trees | Reported as unknown / opaque. No invented tight bound. |
+| Untyped JavaScript receiver | `C(name)` / Unknown. No invented O(n) |
+| Prisma / Knex / Angular templates | Out of scope. Opaque call, not a SQL bound |
 
 Loose or untitled `.cs` files always use the ad-hoc compilation
 (SDK implicit usings only). Unresolved types produce a warning
@@ -276,7 +283,8 @@ instead of a silent O(1).
 
 ## Status
 
-v0.1.6. C# is on by default; TypeScript and JavaScript are opt-in.
+v0.1.6. C#, TypeScript, and JavaScript are on by default. Untyped
+JS is honest and looser than typed TS.
 Estimates are for local computational work as written; they are not a
 substitute for measurement on production data.
 

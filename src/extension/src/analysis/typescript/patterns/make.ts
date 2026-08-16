@@ -28,3 +28,12 @@ export function annotatePattern(
 ): RecognizedPattern {
   return pattern(id, label, reason, 'annotate', range);
 }
+
+export function rangePattern(
+  id: string,
+  label: string,
+  reason: string,
+  range?: LineSpan,
+): RecognizedPattern {
+  return pattern(id, label, reason, 'range', range);
+}

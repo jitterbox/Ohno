@@ -110,7 +110,7 @@ export function ForInUntyped(obj) {
   return keys;
 }
 
-// expected: O(k C(get)) / O(1)
+// expected: O(n C(get)) / O(1)
 /** @param {number[]} values */
 export function ProtoWalkSafe(values) {
   const out = Object.create(null);
@@ -160,7 +160,7 @@ export function WithTimeout(n) {
   });
 }
 
-// expected: O(C(structuredClone)) / O(1)
+// expected: O(n) / O(n)
 /** @param {number[]} values */
 export function CloneGraph(values) {
   return structuredClone(values);
@@ -269,4 +269,38 @@ export function JsBfsNoVisited(graph, start) {
     for (const next of graph[node]) q.push(next);
   }
   return count;
+}
+
+// expected: O(C(iterate)) / O(1)
+export function JsWhileUntyped(n) {
+  let i = 0;
+  while (i < n) i++;
+  return i;
+}
+
+// expected: O(n) / O(1)
+/** @param {number} n */
+export function JsWhileTyped(n) {
+  let i = 0;
+  while (i < n) i++;
+  return i;
+}
+
+// expected: O(log n) / O(1)
+/** @param {number} n */
+export function JsWhileDoubleUp(n) {
+  let i = 1;
+  let steps = 0;
+  while (i < n) {
+    i *= 2;
+    steps++;
+  }
+  return steps;
+}
+
+// expected: O(C(iterate)) / O(1)
+export function JsWhileWrongWay(n) {
+  let i = 0;
+  while (i < n) i--;
+  return i;
 }

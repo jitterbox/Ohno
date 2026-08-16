@@ -11,25 +11,56 @@ down at the time.
 
 ## [Unreleased]
 
-Opt-in TypeScript and JavaScript analysis. C# bounds are unchanged.
+TypeScript and JavaScript analysis is on by default. C# bounds are
+unchanged. Typed TS follows the same honesty rule as C#; untyped JS
+stays `C(name)` / Unknown.
 
 ### Added
 
 - `ohno.languages.typescript` / `javascript` / `typescriptreact` /
-  `javascriptreact` (all default off). A Node worker uses
+  `javascriptreact` (default on). A Node worker uses
   `ts.createProgram` and the same `AnalyzeResponse` as C#.
 - Shared contracts in `src/shared/`: protocol schema assertions,
   BCL catalog snapshot, and algebra golden vectors.
-- Samples under `samples/typescript` and `samples/javascript`.
-- TypeScript Phase 4 patterns: string concat, trivial vs
-  backtracking regex, visited/unbounded worklists, sliding-window
-  heap cap, linear and branching recurrence, approaches.
+- Samples under `samples/typescript` and `samples/javascript`,
+  including cardinality, space, closures, `this`, ranking, and a
+  two-file `tsconfig` interop fixture.
+- TypeScript patterns: string concat, trivial vs backtracking
+  regex, visited/unbounded worklists, sliding-window heap cap,
+  linear and branching recurrence, cache-history, yield, approaches.
+- Cheap ranking for counted `while` / `for` loops (`i < n` +
+  increment, `while (true)` + break, `Math.floor(n / 2)`, `n >>= 1`,
+  `i *= 2`). Collatz stays unknown.
 
 ### Changed
 
 - The unreachable string-algebra TypeScript stub is gone. Unknown
   receivers are `C(name)` at Low; `for await` is Unknown; cataloged
   `Array.sort` / `toSorted` is O(n log n).
+- TypeScript **fast** analysis is ad-hoc (buffer + default lib).
+  **Deep** (`Ohno: Run Deep Analysis`) builds a `tsconfig` /
+  `jsconfig` `Program` and can inline same-program helpers.
+- Marketplace README, welcome views, and keywords cover TypeScript
+  and JavaScript. The VSIX ships `ohno-ts-worker.js`, the
+  `typescript` package (for `lib.*.d.ts`), and this changelog.
+
+### Fixed
+
+- A second call to the same helper is no longer treated as
+  recursion (that under-counted `foo(); foo();` as O(1)).
+- Cancellation and a stale buffer version no longer keep mutating
+  the `Program` cache. Worker `error` clears the worker handle.
+- Overlay paths use `realpath`, so a symlink / URI matches the
+  `tsconfig` file and the unsaved buffer.
+- `rangeOf` uses the callee `SourceFile`. Cards, heaps, and
+  worklists key on checker symbols, not identifier text.
+- Recurrence overwrites time only and keeps walked space / allocs.
+- Nameless `export default function` and object-literal methods
+  are collected. Pattern hits keep a second range instead of
+  collapsing by id.
+- Log-shaped `for` increments use the condition's real bound, not
+  an invented `n`. Nested pointer advance is an AST check, not a
+  `left|right|i|j` regex.
 
 ## [0.1.6] — 2026-08-15
 

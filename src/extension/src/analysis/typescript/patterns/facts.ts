@@ -35,14 +35,21 @@ export function loopFacts(body: ts.Node): LoopFacts {
   return facts;
 }
 
-export function queueFromCondition(
+export function queueIdent(
   condition: ts.Expression,
-): string | undefined {
+): ts.Identifier | undefined {
   const access = lengthAccess(condition)
     ?? (ts.isBinaryExpression(condition)
       ? lengthAccess(condition.left) ?? lengthAccess(condition.right)
       : undefined);
-  return access ? receiverName(access.expression) : undefined;
+  const recv = access?.expression;
+  return recv && ts.isIdentifier(recv) ? recv : undefined;
+}
+
+export function queueFromCondition(
+  condition: ts.Expression,
+): string | undefined {
+  return queueIdent(condition)?.text;
 }
 
 export function isIndexScan(condition: ts.Expression): boolean {

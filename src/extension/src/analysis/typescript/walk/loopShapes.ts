@@ -1,5 +1,6 @@
 import ts from 'typescript';
 import { log, type ComplexityExpression } from '../engine';
+import { rankingProof } from './ranking';
 import { namedDimension, type SizeState } from './sizes';
 
 export function binarySearchBound(
@@ -23,25 +24,32 @@ export function twoPointerBound(
   node: ts.WhileStatement | ts.DoStatement,
   sizes: SizeState,
 ): ComplexityExpression | undefined {
-  if (!twoIdCompare(unwrapAnd(node.expression))) return undefined;
+  const cond = unwrapAnd(node.expression);
+  if (!twoIdCompare(cond) || !ts.isBinaryExpression(cond)) {
+    return undefined;
+  }
+  if (!ts.isIdentifier(cond.left) || !ts.isIdentifier(cond.right)) {
+    return undefined;
+  }
   const text = node.statement.getText();
   if (/(mid|middle)/i.test(text) && text.includes('/')) {
     return undefined;
   }
-  if (!/\+\+|--|\+= 1|-= 1/.test(text)) return undefined;
-  const cond = unwrapAnd(node.expression);
-  if (ts.isBinaryExpression(cond)
-    && ts.isIdentifier(cond.left)
-    && ts.isIdentifier(cond.right)) {
-    const a = cond.left.text;
-    const b = cond.right.text;
-    const moves = new RegExp(`\\b(${a}|${b})\\s*(\\+\\+|--)`);
-    if (!moves.test(text)) return undefined;
+  const a = cond.left.text;
+  const b = cond.right.text;
+  if (!pointerMoves(text, a) || !pointerMoves(text, b)) {
+    return undefined;
   }
   if (sizes.dims[0]) {
     return { kind: 'var', name: sizes.dims[0].variable };
   }
   return namedDimension(sizes, 'n');
+}
+
+function pointerMoves(text: string, name: string): boolean {
+  return new RegExp(
+    `\\b${name}\\s*(\\+\\+|--|\\+=\\s*1|-=\\s*1)`,
+  ).test(text);
 }
 
 export function numericParamBound(
@@ -82,6 +90,7 @@ export function countdownBound(
 export function isUnprovenCountdown(
   node: ts.WhileStatement | ts.DoStatement,
 ): boolean {
+  if (rankingProof(node)) return false;
   const name = countdownName(node.expression);
   if (!name) return false;
   const text = node.statement.getText();
@@ -133,8 +142,15 @@ function unwrapAnd(condition: ts.Expression): ts.Expression {
 
 function twoIdCompare(condition: ts.Expression): boolean {
   if (!ts.isBinaryExpression(condition)) return false;
-  return ts.isIdentifier(condition.left)
-    && ts.isIdentifier(condition.right);
+  if (!ts.isIdentifier(condition.left)
+    || !ts.isIdentifier(condition.right)) {
+    return false;
+  }
+  const op = condition.operatorToken.kind;
+  return op === ts.SyntaxKind.LessThanToken
+    || op === ts.SyntaxKind.LessThanEqualsToken
+    || op === ts.SyntaxKind.GreaterThanToken
+    || op === ts.SyntaxKind.GreaterThanEqualsToken;
 }
 
 function isChainCondition(condition: ts.Expression): boolean {

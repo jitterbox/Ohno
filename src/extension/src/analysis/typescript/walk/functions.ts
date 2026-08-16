@@ -15,7 +15,7 @@ export function collectFunctions(
 ): CollectedFunction[] {
   const found: CollectedFunction[] = [];
   const visit = (node: ts.Node): void => {
-    const collected = asFunction(node, source);
+    const collected = asFunction(node);
     if (collected) found.push(collected);
     ts.forEachChild(node, visit);
   };
@@ -23,39 +23,52 @@ export function collectFunctions(
   return found;
 }
 
-function asFunction(
-  node: ts.Node,
-  source: ts.SourceFile,
-): CollectedFunction | undefined {
-  if (ts.isFunctionDeclaration(node) && node.name && node.body) {
-    return make(node.name.text, 'method', node, node.body, source);
+function asFunction(node: ts.Node): CollectedFunction | undefined {
+  if (ts.isFunctionDeclaration(node) && node.body) {
+    const name = node.name?.text ?? defaultName(node);
+    if (name) return make(name, 'method', node, node.body);
   }
-  if (ts.isMethodDeclaration(node) && ts.isIdentifier(node.name)
-    && node.body) {
-    return make(node.name.text, 'method', node, node.body, source);
+  if (ts.isMethodDeclaration(node) && node.body) {
+    return make(methodName(node.name), 'method', node, node.body);
   }
   if (ts.isConstructorDeclaration(node) && node.body) {
-    return make('constructor', 'constructor', node, node.body, source);
+    return make('constructor', 'constructor', node, node.body);
   }
-  if (ts.isGetAccessorDeclaration(node) && ts.isIdentifier(node.name)
-    && node.body) {
-    return make(node.name.text, 'property', node, node.body, source);
+  if (ts.isGetAccessorDeclaration(node) && node.body) {
+    return make(methodName(node.name), 'property', node, node.body);
   }
-  if (ts.isSetAccessorDeclaration(node) && ts.isIdentifier(node.name)
-    && node.body) {
-    return make(node.name.text, 'property', node, node.body, source);
+  if (ts.isSetAccessorDeclaration(node) && node.body) {
+    return make(methodName(node.name), 'property', node, node.body);
+  }
+  if (ts.isPropertyAssignment(node) && isFunctionLike(node.initializer)) {
+    return make(methodName(node.name), 'method', node, node.initializer);
   }
   if (ts.isVariableDeclaration(node) && node.initializer
     && isFunctionLike(node.initializer) && ts.isIdentifier(node.name)) {
-    return make(
-      node.name.text,
-      'lambda',
-      node,
-      node.initializer,
-      source,
-    );
+    return make(node.name.text, 'lambda', node, node.initializer);
   }
   return undefined;
+}
+
+function defaultName(node: ts.FunctionDeclaration): string | undefined {
+  const mods = node.modifiers;
+  if (!mods) return undefined;
+  const isDefault = mods.some(
+    (m) => m.kind === ts.SyntaxKind.DefaultKeyword,
+  );
+  return isDefault ? 'default' : undefined;
+}
+
+function methodName(name: ts.PropertyName): string {
+  if (ts.isIdentifier(name)) return name.text;
+  if (ts.isStringLiteral(name) || ts.isNumericLiteral(name)) {
+    return name.text;
+  }
+  if (ts.isComputedPropertyName(name)
+    && ts.isStringLiteral(name.expression)) {
+    return name.expression.text;
+  }
+  return 'method';
 }
 
 function isFunctionLike(node: ts.Node): node is ts.FunctionLikeDeclaration {
@@ -67,20 +80,25 @@ function make(
   kind: FunctionKind,
   node: ts.Node,
   body: ts.Node,
-  source: ts.SourceFile,
 ): CollectedFunction {
   return {
     name,
     kind,
     node,
     body,
-    range: rangeOf(node, source),
-    signatureRange: signatureOf(node, source),
+    range: rangeOf(node),
+    signatureRange: signatureOf(node),
   };
 }
 
-export function rangeOf(node: ts.Node, source: ts.SourceFile): LineRange {
-  const start = source.getLineAndCharacterOfPosition(node.getStart(source));
+export function rangeOf(
+  node: ts.Node,
+  fallback?: ts.SourceFile,
+): LineRange {
+  const source = node.getSourceFile() ?? fallback;
+  const start = source.getLineAndCharacterOfPosition(
+    node.getStart(source),
+  );
   const end = source.getLineAndCharacterOfPosition(node.getEnd());
   return {
     startLine: start.line,
@@ -90,7 +108,11 @@ export function rangeOf(node: ts.Node, source: ts.SourceFile): LineRange {
   };
 }
 
-function signatureOf(node: ts.Node, source: ts.SourceFile): LineRange {
+function signatureOf(
+  node: ts.Node,
+  fallback?: ts.SourceFile,
+): LineRange {
+  const source = node.getSourceFile() ?? fallback;
   const start = node.getStart(source);
   let end = start;
   if (ts.isFunctionDeclaration(node) || ts.isMethodDeclaration(node)

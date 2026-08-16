@@ -1,17 +1,36 @@
 import ts from 'typescript';
 import { builtinTypeName } from '../catalog/builtins';
 import { call, One, variable, type ComplexityExpression } from '../engine';
+import type { Cardinality } from './cardinality';
 
 const DimNames = ['n', 'm', 'k', 'p', 'q'];
+const Iterators = new Set(['values', 'keys', 'entries']);
+
+export type BindKey = ts.Symbol | string;
 
 export interface SizeState {
   checker: ts.TypeChecker;
   dims: { variable: string; meaning: string }[];
-  heaps: Map<string, ComplexityExpression>;
+  heaps: Map<BindKey, ComplexityExpression>;
+  loopIndices: Set<string>;
+  cards: Map<BindKey, Cardinality>;
+}
+
+export function bindKey(
+  checker: ts.TypeChecker,
+  ident: ts.Identifier,
+): BindKey {
+  return checker.getSymbolAtLocation(ident) ?? ident.text;
 }
 
 export function createSizeState(checker: ts.TypeChecker): SizeState {
-  return { checker, dims: [], heaps: new Map() };
+  return {
+    checker,
+    dims: [],
+    heaps: new Map(),
+    loopIndices: new Set(),
+    cards: new Map(),
+  };
 }
 
 export function sizedTypeName(type: ts.Type): string | undefined {
@@ -46,6 +65,10 @@ export function dimensionFor(
   node: ts.Node,
   meaning: string,
 ): ComplexityExpression {
+  const iterated = iteratorSize(state, node);
+  if (iterated) return iterated;
+  const lengthProp = objectLengthDim(state, node);
+  if (lengthProp) return lengthProp;
   const type = state.checker.getTypeAtLocation(node);
   if (isOpaqueType(type) && !sizedTypeName(type)) {
     return call('iterate');
@@ -69,6 +92,11 @@ export function namedDimension(
   state: SizeState,
   meaning: string,
 ): ComplexityExpression {
+  if (state.loopIndices.has(meaning)) {
+    const first = state.dims[0];
+    if (first) return variable(first.variable);
+    meaning = 'n';
+  }
   const existing = state.dims.find((d) => d.meaning === meaning);
   if (existing) return variable(existing.variable);
   const prefer = aliasLetter(meaning);
@@ -107,8 +135,9 @@ export function sizeOfReceiver(
   state: SizeState,
   node: ts.LeftHandSideExpression,
 ): ComplexityExpression {
-  if (ts.isIdentifier(node) && state.heaps.has(node.text)) {
-    return state.heaps.get(node.text)!;
+  if (ts.isIdentifier(node)) {
+    const key = bindKey(state.checker, node);
+    if (state.heaps.has(key)) return state.heaps.get(key)!;
   }
   if (ts.isNewExpression(node)
     && node.expression.getText() === 'Array'
@@ -119,9 +148,7 @@ export function sizeOfReceiver(
   const type = state.checker.getTypeAtLocation(node);
   if (isOpaqueType(type)) return call('iterate');
   const sized = sizedTypeName(type);
-  if (sized === 'MinHeap' && !state.heaps.has(
-    ts.isIdentifier(node) ? node.text : '',
-  )) {
+  if (sized === 'MinHeap' && !heapBound(state, node)) {
     return One;
   }
   if (!sized && !looksLikeArrayLiteral(node)) {
@@ -130,18 +157,29 @@ export function sizeOfReceiver(
   return namedDimension(state, node.getText());
 }
 
+function heapBound(
+  state: SizeState,
+  node: ts.LeftHandSideExpression,
+): boolean {
+  if (!ts.isIdentifier(node)) return false;
+  return state.heaps.has(bindKey(state.checker, node));
+}
+
 function looksLikeArrayLiteral(node: ts.Node): boolean {
   return ts.isArrayLiteralExpression(node)
     || (ts.isNewExpression(node)
       && node.expression.getText() === 'Array');
 }
 
-function isNumberLike(type: ts.Type): boolean {
-  return !!(type.flags & (
+export function isNumberLike(type: ts.Type): boolean {
+  if (type.flags & (
     ts.TypeFlags.NumberLike
     | ts.TypeFlags.Number
     | ts.TypeFlags.NumberLiteral
-  ));
+  )) {
+    return true;
+  }
+  return type.isUnion() && type.types.some(isNumberLike);
 }
 
 function numericIdent(node: ts.Node): string | undefined {
@@ -156,6 +194,35 @@ function numericIdent(node: ts.Node): string | undefined {
     return numericIdent(node.left) ?? numericIdent(node.right);
   }
   return undefined;
+}
+
+function objectLengthDim(
+  state: SizeState,
+  node: ts.Node,
+): ComplexityExpression | undefined {
+  if (!ts.isObjectLiteralExpression(node)) return undefined;
+  for (const prop of node.properties) {
+    if (!ts.isPropertyAssignment(prop)) continue;
+    const key = ts.isIdentifier(prop.name)
+      ? prop.name.text
+      : ts.isStringLiteral(prop.name) ? prop.name.text : '';
+    if (key !== 'length') continue;
+    return dimensionFor(state, prop.initializer, prop.initializer.getText());
+  }
+  return undefined;
+}
+
+function iteratorSize(
+  state: SizeState,
+  node: ts.Node,
+): ComplexityExpression | undefined {
+  if (!ts.isCallExpression(node)) return undefined;
+  if (!ts.isPropertyAccessExpression(node.expression)) return undefined;
+  if (!Iterators.has(node.expression.name.text)) return undefined;
+  const recv = node.expression.expression;
+  const sized = sizedTypeName(state.checker.getTypeAtLocation(recv));
+  if (sized !== 'Map' && sized !== 'Set') return undefined;
+  return sizeOfReceiver(state, recv);
 }
 
 function lengthDimension(

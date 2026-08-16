@@ -54,8 +54,11 @@ addAll('Array', 'flatMap', [1], 'receiver', 'exact', 'receiver', true);
 addAll('Array', 'indexOf', [1, 2], 'receiver');
 addAll('Array', 'includes', [1, 2], 'receiver');
 addAll('Array', 'find', [1], 'receiver', 'exact', 'constant', true);
+addAll('Array', 'findIndex', [1], 'receiver', 'exact', 'constant', true);
+addAll('Array', 'findLast', [1], 'receiver', 'exact', 'constant', true);
 addAll('Array', 'some', [1], 'receiver', 'exact', 'constant', true);
 addAll('Array', 'every', [1], 'receiver', 'exact', 'constant', true);
+addAll('Array', 'with', [2], 'receiver', 'exact', 'receiver');
 addAll('Array', 'at', [1], 'constant');
 addAll('Array', 'concat', [1, 2, 3], 'receiver', 'exact', 'receiver');
 addAll('Array', 'slice', [0, 1, 2], 'receiver', 'exact', 'receiver');
@@ -92,12 +95,25 @@ add('Map', 'set', 2, 'constant', 'expected');
 add('Map', 'delete', 1, 'constant', 'expected');
 add('Map', 'clear', 0, 'receiver');
 add('Map', 'forEach', 1, 'receiver', 'exact', 'constant', true);
+add('Map', 'values', 0, 'constant');
+add('Map', 'keys', 0, 'constant');
+add('Map', 'entries', 0, 'constant');
+add('WeakMap', 'get', 1, 'constant', 'expected');
+add('WeakMap', 'has', 1, 'constant', 'expected');
+add('WeakMap', 'set', 2, 'constant', 'expected');
+add('WeakMap', 'delete', 1, 'constant', 'expected');
 add('Set', 'size', 0, 'constant');
 add('Set', 'has', 1, 'constant', 'expected');
 add('Set', 'add', 1, 'constant', 'expected');
 add('Set', 'delete', 1, 'constant', 'expected');
 add('Set', 'clear', 0, 'receiver');
 add('Set', 'forEach', 1, 'receiver', 'exact', 'constant', true);
+add('Set', 'values', 0, 'constant');
+add('Set', 'keys', 0, 'constant');
+add('Set', 'entries', 0, 'constant');
+add('WeakSet', 'has', 1, 'constant', 'expected');
+add('WeakSet', 'add', 1, 'constant', 'expected');
+add('WeakSet', 'delete', 1, 'constant', 'expected');
 
 add('String', 'length', 0, 'constant');
 addAll('String', 'includes', [1, 2], 'receiver');
@@ -111,13 +127,22 @@ addAll('String', 'startsWith', [1, 2], 'receiver');
 addAll('String', 'endsWith', [1, 2], 'receiver');
 addAll('String', 'replace', [2], 'receiver', 'exact', 'receiver');
 addAll('String', 'match', [1], 'receiver', 'exact', 'receiver');
+addAll('String', 'repeat', [1], 'receiver', 'exact', 'receiver');
+addAll('String', 'padStart', [1, 2], 'receiver', 'exact', 'receiver');
+addAll('String', 'padEnd', [1, 2], 'receiver', 'exact', 'receiver');
 
 addAll('Object', 'create', [1, 2], 'constant');
 addAll('Object', 'keys', [1], 'receiver', 'exact', 'receiver');
 addAll('Object', 'values', [1], 'receiver', 'exact', 'receiver');
 addAll('Object', 'entries', [1], 'receiver', 'exact', 'receiver');
+addAll('Object', 'assign', [1, 2, 3], 'receiver', 'exact', 'receiver');
 addAll('JSON', 'parse', [1], 'receiver', 'exact', 'receiver');
 addAll('JSON', 'stringify', [1, 2, 3], 'receiver', 'exact', 'receiver');
+addAll('Promise', 'all', [1], 'receiver');
+addAll('Promise', 'allSettled', [1], 'receiver');
+addAll('Promise', 'race', [1], 'receiver');
+addAll('Promise', 'any', [1], 'receiver');
+add('Global', 'structuredClone', 1, 'receiver', 'exact', 'receiver');
 
 export function lookupBuiltin(
   typeName: string,
@@ -162,6 +187,18 @@ export function builtinTypeName(name: string): string | undefined {
       return 'Math';
     case 'MinHeap':
       return 'MinHeap';
+    case 'Promise':
+    case 'PromiseConstructor':
+      return 'Promise';
+    case 'WeakMap':
+      return 'WeakMap';
+    case 'WeakSet':
+      return 'WeakSet';
+    case 'Buffer':
+      return 'Array';
+    case 'Global':
+    case 'structuredClone':
+      return 'Global';
     default:
       return undefined;
   }

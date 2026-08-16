@@ -20,31 +20,44 @@ import {
 } from './engine';
 import { applySpace, applyTime } from './patterns/apply';
 import { summarize } from './patterns/approaches';
-import { detectBounds } from './patterns/bounds';
+import {
+  emptyBoundMaps,
+  noteBounds,
+  type BoundMaps,
+} from './patterns/bounds';
 import { recognize } from './patterns/recognize';
 import { tryRecurrence } from './patterns/recurrence';
 import { refine } from './patterns/refine';
 import { getProgram } from './program';
 import { createContext, walkList, walkNode } from './walk/body';
+import { noteLoopIndex } from './walk/cardinality';
 import {
   collectFunctions,
   overlaps,
   rangeOf,
   type CollectedFunction,
 } from './walk/functions';
+import { noteUnreachable } from './walk/reachability';
 import ts from 'typescript';
 
 export function analyzeDocument(
   request: AnalyzeDocumentRequest,
+  abort?: () => boolean,
 ): AnalyzeResponse {
-  const loaded = getProgram(request.uri, request.text, true);
+  const loaded = getProgram(
+    request.uri, request.text, request.tier === 'deep',
+  );
   const checker = loaded.program.getTypeChecker();
   const collected = collectFunctions(loaded.source);
   const warnings = fallbackWarnings(request.tier, loaded.fallback);
+  const host = {
+    checker,
+    source: loaded.source,
+    program: loaded.program,
+  };
   if (request.selection) {
-    const fn = analyzeSelection(
-      request, collected, checker, loaded.source,
-    );
+    if (abort?.()) throw new Error('cancelled');
+    const fn = analyzeSelection(request, collected, host);
     return {
       uri: request.uri,
       version: request.version,
@@ -55,37 +68,49 @@ export function analyzeDocument(
   return {
     uri: request.uri,
     version: request.version,
-    functions: collected.map((fn) =>
-      analyzeOne(fn, checker, loaded.source, request.tier, false)),
+    functions: analyzeAll(collected, host, request.tier, abort),
     warnings,
   };
 }
 
+interface AnalyzeHost {
+  checker: ts.TypeChecker;
+  source: ts.SourceFile;
+  program: ts.Program;
+}
+
+function analyzeAll(
+  collected: CollectedFunction[],
+  host: AnalyzeHost,
+  tier: AnalysisTier,
+  abort?: () => boolean,
+): FunctionComplexity[] {
+  const functions: FunctionComplexity[] = [];
+  for (const fn of collected) {
+    if (abort?.()) throw new Error('cancelled');
+    functions.push(analyzeOne(fn, host, tier, false));
+  }
+  return functions;
+}
+
 function analyzeOne(
   fn: CollectedFunction,
-  checker: ts.TypeChecker,
-  source: ts.SourceFile,
+  host: AnalyzeHost,
   tier: AnalysisTier,
   selection: boolean,
 ): FunctionComplexity {
-  const ctx = createContext(checker, source);
-  const root = fn.body ?? fn.node;
-  const bounds = detectBounds(root, ctx.sizes);
-  ctx.sizes.heaps = bounds.heaps;
-  ctx.worklists = bounds.worklists;
-  ctx.worklistKind = bounds.worklistKind;
-  ctx.reasons.push(...bounds.reasons);
-  for (const bound of bounds.heaps.values()) ctx.allocs.push(bound);
-  const raw = recognize(fn.node, source, checker);
+  const ctx = primedContext(host, fn.body ?? fn.node);
+  const raw = recognize(fn.node, host.source, host.checker);
   const rec = tryRecurrence(fn.name, fn.body);
-  const walked = rec?.cost ?? walkNode(ctx, root);
-  const patterns = refine(raw, walked.time, rec?.id);
+  const walked = walkNode(ctx, fn.body ?? fn.node);
+  const cost = withRecurrence(walked, rec);
+  const patterns = refine(raw, cost.time, rec?.id);
   return toDto({
     name: fn.name,
     kind: fn.kind,
     range: fn.range,
     signatureRange: fn.signatureRange,
-    cost: withAllocs(walked, ctx.allocs),
+    cost: withAllocs(cost, ctx.allocs),
     patterns,
     reasons: ctx.reasons,
     dims: ctx.sizes.dims,
@@ -94,25 +119,30 @@ function analyzeOne(
   });
 }
 
+function withRecurrence(
+  walked: ComposedCost,
+  rec: ReturnType<typeof tryRecurrence>,
+): ComposedCost {
+  if (!rec) return walked;
+  return {
+    ...walked,
+    time: rec.cost.time,
+    space: peak([walked.space, rec.cost.space]),
+  };
+}
+
 function analyzeSelection(
   request: AnalyzeDocumentRequest,
   collected: CollectedFunction[],
-  checker: ts.TypeChecker,
-  source: ts.SourceFile,
+  host: AnalyzeHost,
 ): FunctionComplexity | undefined {
   const selection = request.selection!;
   const enclosing = collected.find((fn) => overlaps(fn.range, selection));
-  const ctx = createContext(checker, source);
-  const nodes = overlappingStatements(source, selection);
-  const root = enclosing?.body ?? source;
-  const bounds = detectBounds(root, ctx.sizes);
-  ctx.sizes.heaps = bounds.heaps;
-  ctx.worklists = bounds.worklists;
-  ctx.worklistKind = bounds.worklistKind;
-  ctx.reasons.push(...bounds.reasons);
-  for (const bound of bounds.heaps.values()) ctx.allocs.push(bound);
+  const root = enclosing?.body ?? host.source;
+  const ctx = primedContext(host, root);
+  const nodes = overlappingStatements(host.source, selection);
   const cost = walkList(ctx, nodes, selection);
-  const raw = recognize(root, source, checker);
+  const raw = recognize(root, host.source, host.checker);
   const patterns = refine(raw, cost.time);
   return toDto({
     name: enclosing ? `${enclosing.name} (selection)` : 'selection',
@@ -126,6 +156,34 @@ function analyzeSelection(
     tier: request.tier,
     selection: true,
   });
+}
+
+function primedContext(
+  host: AnalyzeHost,
+  root: ts.Node,
+) {
+  const ctx = createContext(host.checker, host.source, host.program);
+  const bounds = emptyBoundMaps();
+  const visit = (node: ts.Node): void => {
+    noteLoopIndex(node, ctx.sizes.loopIndices);
+    noteUnreachable(node, ctx.unreachable);
+    noteBounds(node, ctx.sizes, bounds);
+    ts.forEachChild(node, visit);
+  };
+  visit(root);
+  applyBounds(ctx, bounds);
+  return ctx;
+}
+
+function applyBounds(
+  ctx: ReturnType<typeof createContext>,
+  bounds: BoundMaps,
+): void {
+  ctx.sizes.heaps = bounds.heaps;
+  ctx.worklists = bounds.worklists;
+  ctx.worklistKind = bounds.worklistKind;
+  ctx.reasons.push(...bounds.reasons);
+  for (const bound of bounds.heaps.values()) ctx.allocs.push(bound);
 }
 
 function overlappingStatements(

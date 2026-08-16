@@ -196,7 +196,7 @@ export function WindowIndex(values: number[], k: number): number {
   return best;
 }
 
-// expected: O(n log k + n log n) / O(k + n)
+// expected: O(n log n) / O(n)
 export function RunningMedian(nums: number[]): number[] {
   const low = new MinHeap<number>();
   const high = new MinHeap<number>();
@@ -328,7 +328,7 @@ export function FilterMapChain(values: number[]): number[] {
   return values.filter((n) => n > 0).map((n) => n * 2);
 }
 
-// expected: O(n) / O(1)
+// expected: O(n) / O(n)
 export function ReduceBuild(values: number[]): number[] {
   return values.reduce<number[]>((acc, n) => {
     acc.push(n);
@@ -506,7 +506,7 @@ export function CommaLoop(values: number[]): number {
   return sum;
 }
 
-// expected: O(C(iterate)) / O(1)
+// expected: O(n) / O(1)
 export function WhileTrueBreak(n: number): number {
   let i = 0;
   while (true) {
@@ -751,7 +751,7 @@ export function ValidPalindrome(s: string): boolean {
   return true;
 }
 
-// expected: O(n²) / O(1)
+// expected: O(n) / O(1)
 export function LongestOnes(nums: number[], k: number): number {
   let left = 0;
   let zeros = 0;

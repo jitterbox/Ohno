@@ -1,7 +1,7 @@
 {
   "name": "ohno",
   "displayName": "Oʰ(nᵒ) — Algorithmic Complexity",
-  "description": "Inline Big-O time and space estimates for C# and opt-in TypeScript/JavaScript, with confidence, named approaches, and selection-scoped analysis.",
+  "description": "Inline Big-O time and space estimates for C#, TypeScript, and JavaScript, with confidence, named approaches, and selection-scoped analysis.",
   "version": "0.1.6",
   "publisher": "ohno-dev",
   "license": "MIT",
@@ -23,7 +23,9 @@
     "complexity",
     "performance",
     "analysis",
-    "csharp"
+    "csharp",
+    "typescript",
+    "javascript"
   ],
   "activationEvents": [
     "onLanguage:csharp",
@@ -53,8 +55,8 @@
               "deep"
             ],
             "default": "fast",
-            "description": "Reserved. Automatic analysis always uses the fast tier; deep analysis runs only via 'Ohno: Run Deep Analysis'.",
-            "markdownDeprecationMessage": "Automatic analysis is always fast. Use the 'Ohno: Run Deep Analysis' command for solution-wide analysis."
+            "description": "Reserved. Automatic analysis is always the fast tier. Deep analysis runs only via 'Ohno: Run Deep Analysis'.",
+            "markdownDeprecationMessage": "Automatic analysis is always fast. Use **Ohno: Run Deep Analysis** for a project graph (C# workspace or `tsconfig`)."
           },
         "ohno.annotations.mode": {
           "type": "string",
@@ -150,27 +152,27 @@
           },
           "ohno.languages.typescript": {
             "type": "boolean",
-            "default": false,
+            "default": true,
             "order": 2,
-            "markdownDescription": "Analyze **TypeScript** (`.ts`) files. Off until you opt in."
+            "markdownDescription": "Analyze **TypeScript** (`.ts`) files. Typed code uses the same honesty rule as C#."
           },
           "ohno.languages.javascript": {
             "type": "boolean",
-            "default": false,
+            "default": true,
             "order": 3,
-            "markdownDescription": "Analyze **JavaScript** (`.js`) files. Off until you opt in."
+            "markdownDescription": "Analyze **JavaScript** (`.js`) files. Untyped receivers stay `C(name)` / Unknown."
           },
           "ohno.languages.typescriptreact": {
             "type": "boolean",
-            "default": false,
+            "default": true,
             "order": 4,
-            "markdownDescription": "Analyze **TSX** files. Off until you opt in."
+            "markdownDescription": "Analyze **TSX** files."
           },
           "ohno.languages.javascriptreact": {
             "type": "boolean",
-            "default": false,
+            "default": true,
             "order": 5,
-            "markdownDescription": "Analyze **JSX** files. Off until you opt in."
+            "markdownDescription": "Analyze **JSX** files. Untyped receivers stay `C(name)` / Unknown."
           }
         }
       }
@@ -233,7 +235,7 @@
     "viewsWelcome": [
       {
         "view": "ohno.summary",
-        "contents": "Open a C# file and place the cursor in a function to see its complexity analysis."
+        "contents": "Open a C#, TypeScript, or JavaScript file and place the cursor in a function to see its complexity analysis."
       },
       {
         "view": "ohno.derivation",
@@ -387,7 +389,8 @@
     "fixtures": "node ../../scripts/generate-fixtures.mjs",
     "probe": "node ../../scripts/probe-rpc.mjs",
     "package": "vsce package --no-rewrite-relative-links",
-    "vscode:prepublish": "npm run compile"
+    "package:check": "node ../../scripts/check-vsix-contents.mjs",
+    "vscode:prepublish": "npm run compile && node ../../scripts/sync-extension-docs.mjs"
   },
   "dependencies": {
     "typescript": "^5.7.0",

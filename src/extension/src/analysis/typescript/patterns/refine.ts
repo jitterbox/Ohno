@@ -4,6 +4,10 @@ import { annotatePattern } from './make';
 const Soft = new Set([
   'await-opaque',
   'interface-dispatch',
+  'dynamic-dispatch',
+  'delegate-invoke',
+  'parallel-loop',
+  'cache-history',
 ]);
 
 export function refine(
@@ -65,5 +69,11 @@ function unique(
   index: number,
   all: RecognizedPattern[],
 ): boolean {
-  return all.findIndex((p) => p.id === item.id) === index;
+  return all.findIndex((p) => sameHit(p, item)) === index;
+}
+
+function sameHit(a: RecognizedPattern, b: RecognizedPattern): boolean {
+  return a.id === b.id
+    && a.range?.startLine === b.range?.startLine
+    && a.range?.startCharacter === b.range?.startCharacter;
 }

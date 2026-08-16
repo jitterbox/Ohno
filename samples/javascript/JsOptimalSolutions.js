@@ -306,7 +306,7 @@ export function Trap(height) {
   return water;
 }
 
-// expected: O(C(iterate) + k n + m n log m + n C(push) + n p) / O(C(iterate) + k + n + p)
+// expected: O(k n + m n log m + n C(push) + n p) / O(k + n + p)
 /** @param {string[]} strs */
 export function GroupAnagrams(strs) {
   const groups = new Map();

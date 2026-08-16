@@ -1,7 +1,7 @@
 /**
- * Built-in languages shipped with Ohno. C# is on by default.
- * TypeScript and JavaScript are opt-in until their catalog and
- * honesty match C#.
+ * Built-in languages shipped with Ohno. C#, TypeScript, and
+ * JavaScript are on by default. Untyped JS stays honest (`C(name)`
+ * / Unknown) rather than inventing a bound.
  *
  * Do not treat this list as the long-term analyzer registry. A public
  * analyzer manifest schema (and optional file upload) will later let
@@ -19,17 +19,17 @@ export const DEFAULT_LANGUAGE_ID = 'csharp';
 
 export const BUILTIN_LANGUAGES: readonly BuiltinLanguage[] = [
   { id: 'csharp', title: 'C#', enabledByDefault: true },
-  { id: 'typescript', title: 'TypeScript', enabledByDefault: false },
-  { id: 'javascript', title: 'JavaScript', enabledByDefault: false },
+  { id: 'typescript', title: 'TypeScript', enabledByDefault: true },
+  { id: 'javascript', title: 'JavaScript', enabledByDefault: true },
   {
     id: 'typescriptreact',
     title: 'TypeScript React',
-    enabledByDefault: false,
+    enabledByDefault: true,
   },
   {
     id: 'javascriptreact',
     title: 'JavaScript React',
-    enabledByDefault: false,
+    enabledByDefault: true,
   },
 ];
 

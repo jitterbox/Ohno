@@ -33,6 +33,7 @@ export class TypeScriptAnalyzer implements IComplexityAnalyzer {
   private starting: Promise<Worker> | undefined;
   private disposed = false;
   private nextId = 1;
+  private readonly abortGen = new Int32Array(new SharedArrayBuffer(4));
   private readonly pending = new Map<
     number,
     {
@@ -58,11 +59,19 @@ export class TypeScriptAnalyzer implements IComplexityAnalyzer {
     if (this.disposed) {
       return failedAnalyze(request, 'TypeScript analyzer disposed');
     }
+    const id = this.nextId++;
+    const sub = token.onCancellationRequested(() => {
+      this.abort(id);
+    });
     try {
       const response = await this.post({
         method: 'analyze',
         params: request,
-      });
+      }, id);
+      if (response.error === 'cancelled'
+        || token.isCancellationRequested) {
+        return Promise.reject(new Error('cancelled'));
+      }
       if (response.error) {
         return failedAnalyze(request, response.error);
       }
@@ -70,6 +79,8 @@ export class TypeScriptAnalyzer implements IComplexityAnalyzer {
         ?? failedAnalyze(request, 'empty worker result');
     } catch (error) {
       return failedAnalyze(request, String(error));
+    } finally {
+      sub.dispose();
     }
   }
 
@@ -86,9 +97,9 @@ export class TypeScriptAnalyzer implements IComplexityAnalyzer {
 
   private async post(
     body: Omit<WorkerRequest, 'id'>,
+    id = this.nextId++,
   ): Promise<WorkerResponse> {
     const worker = await this.ensure();
-    const id = this.nextId++;
     const request: WorkerRequest = { id, ...body };
     return new Promise((resolve, reject) => {
       this.pending.set(id, { resolve, reject });
@@ -113,7 +124,9 @@ export class TypeScriptAnalyzer implements IComplexityAnalyzer {
 
   private start(): Promise<Worker> {
     const file = this.workerFile ?? defaultWorkerFile();
-    const worker = new Worker(file);
+    const worker = new Worker(file, {
+      workerData: { abortGen: this.abortGen.buffer },
+    });
     worker.on('message', (message: WorkerResponse) => {
       const wait = this.pending.get(message.id);
       if (!wait) return;
@@ -122,6 +135,8 @@ export class TypeScriptAnalyzer implements IComplexityAnalyzer {
     });
     worker.on('error', (error) => {
       this.failAll(error);
+      this.worker = undefined;
+      this.starting = undefined;
     });
     worker.on('exit', (code) => {
       if (this.disposed) return;
@@ -134,6 +149,13 @@ export class TypeScriptAnalyzer implements IComplexityAnalyzer {
   private failAll(error: Error): void {
     for (const wait of this.pending.values()) wait.reject(error);
     this.pending.clear();
+  }
+
+  private abort(id: number): void {
+    Atomics.store(this.abortGen, 0, id);
+    void this.worker?.postMessage({
+      id: 0, method: 'cancel', cancelId: id,
+    });
   }
 }
 

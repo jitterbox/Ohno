@@ -55,7 +55,8 @@ describe('built-in languages', () => {
   it('defaults to C# and lists every built-in selector', () => {
     expect(DEFAULT_LANGUAGE_ID).toBe('csharp');
     expect(defaultLanguageEnabled('csharp')).toBe(true);
-    expect(defaultLanguageEnabled('typescript')).toBe(false);
+    expect(defaultLanguageEnabled('typescript')).toBe(true);
+    expect(defaultLanguageEnabled('javascript')).toBe(true);
     expect(documentSelectors()).toEqual([
       { language: 'csharp' },
       { language: 'typescript' },
@@ -68,7 +69,7 @@ describe('built-in languages', () => {
 
 describe('languageEnabled', () => {
   it('honors per-language toggles', () => {
-    const flags = config({ csharp: true });
+    const flags = config({ csharp: true, typescript: false });
     expect(languageEnabled('csharp', flags)).toBe(true);
     expect(languageEnabled('typescript', flags)).toBe(false);
   });
@@ -82,14 +83,14 @@ describe('languageEnabled', () => {
     expect(languageEnabled('python', config({ csharp: true }))).toBe(false);
   });
 
-  it('honors an explicit TypeScript opt-in', () => {
-    const flags = config({ csharp: true, typescript: true });
-    expect(languageEnabled('typescript', flags)).toBe(true);
+  it('honors an explicit TypeScript opt-out', () => {
+    const flags = config({ csharp: true, typescript: false });
+    expect(languageEnabled('typescript', flags)).toBe(false);
   });
 
-  it('keeps TypeScript off unless the user opts in', () => {
+  it('enables TypeScript and JavaScript by default', () => {
     const flags = config({ csharp: true });
-    expect(languageEnabled('typescript', flags)).toBe(false);
-    expect(languageEnabled('javascript', flags)).toBe(false);
+    expect(languageEnabled('typescript', flags)).toBe(true);
+    expect(languageEnabled('javascript', flags)).toBe(true);
   });
 });
