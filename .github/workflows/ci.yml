@@ -47,6 +47,7 @@ jobs:
         working-directory: src/analyzer
       - run: npm ci
       - run: npm run compile
+      - run: npm run package:check
       - run: npm test
 
   publish-server:

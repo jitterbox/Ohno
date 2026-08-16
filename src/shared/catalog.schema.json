@@ -1,0 +1,58 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://ohno.dev/catalog.schema.json",
+  "title": "Ohno operation catalog",
+  "description": "Portable BCL / lib cost table. C# CreateDefault() is the writer; this file is the snapshot TS will load.",
+  "type": "object",
+  "required": ["version", "entries"],
+  "additionalProperties": false,
+  "properties": {
+    "version": { "type": "integer", "const": 1 },
+    "entries": {
+      "type": "array",
+      "items": { "$ref": "#/$defs/entry" }
+    }
+  },
+  "$defs": {
+    "sizeKind": {
+      "enum": ["constant", "receiver", "logReceiver"]
+    },
+    "costKind": {
+      "enum": ["exact", "amortized", "expected"]
+    },
+    "sizeDelta": {
+      "enum": ["none", "increment", "decrement", "clear", "replace"]
+    },
+    "template": {
+      "type": "object",
+      "required": ["size", "power"],
+      "additionalProperties": false,
+      "properties": {
+        "size": { "$ref": "#/$defs/sizeKind" },
+        "power": { "type": "integer" }
+      }
+    },
+    "entry": {
+      "type": "object",
+      "required": [
+        "key", "time", "space", "kind", "deferred",
+        "materializes", "sorts", "queryable", "delta"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "key": {
+          "type": "string",
+          "pattern": "^.+#[^#]+#[0-9]+$"
+        },
+        "time": { "$ref": "#/$defs/template" },
+        "space": { "$ref": "#/$defs/template" },
+        "kind": { "$ref": "#/$defs/costKind" },
+        "deferred": { "type": "boolean" },
+        "materializes": { "type": "boolean" },
+        "sorts": { "type": "boolean" },
+        "queryable": { "type": "boolean" },
+        "delta": { "$ref": "#/$defs/sizeDelta" }
+      }
+    }
+  }
+}

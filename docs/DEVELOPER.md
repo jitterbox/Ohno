@@ -440,11 +440,37 @@ that window/Fibonacci are Medium with a matching reason.
 | `SelectionAnalysisTests` | Inner-loop drop of outer bound, multi-loop hint, span outside a method |
 | `CompilationContextTests` | Top-level Main, primary ctor, local fn, bind warnings |
 | `ProjectWorkspaceTests` | Fast uses project `#define`s when the workspace is ready |
-| Extension Vitest | Normalize, panel (approaches + hint), decorations, selection store, RPC round-trip |
+| Extension Vitest | Normalize, panel, decorations, selection store, RPC, TS/JS comment harness |
+
+### 4.5 TypeScript / JavaScript
+
+Asserted by `src/extension` Vitest (`tsTorture`, `tsOptimal`,
+`tsParity`). Comments are `// expected: TIME / SPACE`.
+
+| Fixture | Role |
+|---|---|
+| `samples/typescript/TsOptimalSolutions.ts` | Known-optimal typed shapes |
+| `samples/typescript/TsTorture.ts` | Honesty / adversarial TS |
+| `samples/typescript/TsRanking.ts` | Counted `while` / log updates |
+| `samples/typescript/TsCardinality.ts` | Loop index, window k, spread |
+| `samples/typescript/TsSpace.ts` | Peak vs retain, 2-D table |
+| `samples/typescript/TsPatternsMore.ts` | cache-history, yield, Reflect |
+| `samples/typescript/TsThis.ts` | `this`, `call` / `apply`, Proxy |
+| `samples/typescript/interop/` | Deep-tier same-`Program` inline |
+| `samples/javascript/JsTorture.js` | Untyped stays `C(name)` |
+| `samples/javascript/JsClosures.js` | Capture mutate, stored callback |
+
+Untyped JS must not grow a tighter comment than the walker can
+prove. C# Core tests stay untouched.
 
 ## 5. Extension
 
 - `src/extension` — VS Code/Cursor extension (`ohno`).
+- TypeScript / JavaScript run in `dist/ohno-ts-worker.js`. The VSIX
+  must include that file and `node_modules/typescript` (`lib.*.d.ts`
+  is loaded from disk). `npm run package:check` lists both.
+- Fast TS/JS is ad-hoc; deep uses `tsconfig` / `jsconfig`. Cancel
+  and a stale version skip the worker instead of mutating the cache.
 - `src/extension/src/ui/complexityModel.ts` — summary tree: gloss,
   approaches, patterns (with source range), confidence reasons,
   dimensions, warnings.
@@ -474,6 +500,8 @@ that window/Fibonacci are Medium with a matching reason.
 Register in `OperationCatalog` with type, name, arity, `SizeKind`,
 and `CostKind`. Use `Expected` / `Amortized` when the textbook bound
 is not worst-case (hash table, `List.Add`). Add an acceptance test.
+Refresh `src/shared/catalog.json` with `OHNO_WRITE_SHARED=1` so the
+TypeScript port keeps the same table.
 
 **Register every arity.** The catalog is keyed by arity, so
 `OrderBy#2` does not cover `OrderBy(keySelector, comparer)`. A missing
@@ -520,7 +548,18 @@ on `AnalysisState.RecurrenceId` so `PatternRefiner` can merge it.
 
 Implement the `IOperation`-equivalent walk (or a compiler API walk),
 emit `ComplexityResult`, and keep the Core algebra unchanged. Update
-`src/shared/protocol.ts` only if the wire shape changes.
+`src/shared/protocol.schema.json` (then `protocol.ts` and
+`Contracts.cs`) only if the wire shape changes. Algebra goldens live
+in `src/shared/algebra-vectors.json`.
+
+TypeScript / JavaScript is the second frontend: a Node worker under
+`src/extension/src/analysis/typescript/`. Do not start the Roslyn
+server for a TS-only document. Ported Core lives in
+`engine/` and must keep `algebra-vectors.json` green. v1 decisions
+are locked in [PLAN-TYPESCRIPT.md](PLAN-TYPESCRIPT.md). Phases 6–13
+(cardinality, patterns, honesty, catalog, space, inlining, ranking,
+default-on) are in
+[PLAN-TYPESCRIPT-PARITY.md](PLAN-TYPESCRIPT-PARITY.md).
 
 ## 7. Limits (do not paper over these)
 
@@ -547,6 +586,8 @@ form (`O(n C(f))`) over a tight High bound.
 | Every `#if` configuration | One compilation (project or ad-hoc). Other arms are invisible. |
 | `.razor` / `.cshtml` / `.csx` | Not hosted. `languageId` is not `csharp`. |
 | Tight bounds for `IQueryable`, `dynamic`, expression trees | Opaque / unknown. Do not invent High O(1). |
+| Untyped JavaScript receivers | `C(name)` / Unknown. Do not invent O(n). |
+| Prisma / Knex / Angular templates | Out of scope. Opaque call. |
 
 ## 8. Commands
 

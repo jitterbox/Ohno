@@ -1,0 +1,321 @@
+{
+  "version": 1,
+  "vectors": [
+    {
+      "id": "constant-plus-variable",
+      "expr": {
+        "op": "add",
+        "args": [
+          { "op": "var", "name": "n" },
+          { "op": "const", "value": 1 }
+        ]
+      },
+      "simplified": "n",
+      "bigO": "O(n)"
+    },
+    {
+      "id": "same-variable-twice",
+      "expr": {
+        "op": "add",
+        "args": [
+          { "op": "var", "name": "n" },
+          { "op": "var", "name": "n" }
+        ]
+      },
+      "simplified": "n",
+      "bigO": "O(n)"
+    },
+    {
+      "id": "quadratic-dominates-linear",
+      "expr": {
+        "op": "add",
+        "args": [
+          { "op": "var", "name": "n" },
+          {
+            "op": "pow",
+            "base": { "op": "var", "name": "n" },
+            "exp": { "op": "const", "value": 2 }
+          }
+        ]
+      },
+      "simplified": "n²",
+      "bigO": "O(n²)"
+    },
+    {
+      "id": "linearithmic-dominates-linear",
+      "expr": {
+        "op": "add",
+        "args": [
+          { "op": "var", "name": "n" },
+          {
+            "op": "mul",
+            "args": [
+              { "op": "var", "name": "n" },
+              { "op": "log", "inner": { "op": "var", "name": "n" } }
+            ]
+          }
+        ]
+      },
+      "simplified": "n log n",
+      "bigO": "O(n log n)"
+    },
+    {
+      "id": "independent-dimensions-sum",
+      "expr": {
+        "op": "add",
+        "args": [
+          { "op": "var", "name": "n" },
+          { "op": "var", "name": "m" }
+        ]
+      },
+      "simplified": "m + n",
+      "bigO": "O(m + n)"
+    },
+    {
+      "id": "independent-dimensions-product",
+      "expr": {
+        "op": "mul",
+        "args": [
+          { "op": "var", "name": "n" },
+          { "op": "var", "name": "m" }
+        ]
+      },
+      "simplified": "m n",
+      "bigO": "O(m n)"
+    },
+    {
+      "id": "node-walk-dominates-seeded-heap",
+      "expr": {
+        "op": "add",
+        "args": [
+          {
+            "op": "mul",
+            "args": [
+              { "op": "var", "name": "n" },
+              { "op": "log", "inner": { "op": "var", "name": "k" } }
+            ]
+          },
+          {
+            "op": "mul",
+            "args": [
+              { "op": "var", "name": "k" },
+              { "op": "log", "inner": { "op": "var", "name": "k" } }
+            ]
+          }
+        ]
+      },
+      "simplified": "n log k",
+      "bigO": "O(n log k)"
+    },
+    {
+      "id": "vertices-plus-edges-times-log",
+      "expr": {
+        "op": "mul",
+        "args": [
+          {
+            "op": "add",
+            "args": [
+              { "op": "var", "name": "n" },
+              { "op": "var", "name": "m" }
+            ]
+          },
+          { "op": "log", "inner": { "op": "var", "name": "n" } }
+        ]
+      },
+      "simplified": "m log n + n log n",
+      "bigO": "O(m log n + n log n)"
+    },
+    {
+      "id": "product-distributes-and-simplifies",
+      "expr": {
+        "op": "mul",
+        "args": [
+          { "op": "var", "name": "n" },
+          {
+            "op": "add",
+            "args": [
+              { "op": "const", "value": 1 },
+              { "op": "log", "inner": { "op": "var", "name": "k" } }
+            ]
+          }
+        ]
+      },
+      "simplified": "n log k",
+      "bigO": "O(n log k)"
+    },
+    {
+      "id": "product-of-independent-dominates-each",
+      "expr": {
+        "op": "add",
+        "args": [
+          { "op": "var", "name": "n" },
+          {
+            "op": "mul",
+            "args": [
+              { "op": "var", "name": "n" },
+              { "op": "var", "name": "m" }
+            ]
+          }
+        ]
+      },
+      "simplified": "m n",
+      "bigO": "O(m n)"
+    },
+    {
+      "id": "cross-variable-powers-incomparable",
+      "expr": {
+        "op": "add",
+        "args": [
+          {
+            "op": "pow",
+            "base": { "op": "var", "name": "n" },
+            "exp": { "op": "const", "value": 2 }
+          },
+          {
+            "op": "mul",
+            "args": [
+              { "op": "var", "name": "n" },
+              { "op": "var", "name": "m" }
+            ]
+          }
+        ]
+      },
+      "simplified": "m n + n²",
+      "bigO": "O(m n + n²)"
+    },
+    {
+      "id": "exponential-dominates-polynomial",
+      "expr": {
+        "op": "add",
+        "args": [
+          {
+            "op": "pow",
+            "base": { "op": "const", "value": 2 },
+            "exp": { "op": "var", "name": "n" }
+          },
+          {
+            "op": "pow",
+            "base": { "op": "var", "name": "n" },
+            "exp": { "op": "const", "value": 2 }
+          }
+        ]
+      },
+      "simplified": "2^n",
+      "bigO": "O(2^n)"
+    },
+    {
+      "id": "factorial-dominates-exponential",
+      "expr": {
+        "op": "add",
+        "args": [
+          {
+            "op": "pow",
+            "base": { "op": "const", "value": 2 },
+            "exp": { "op": "var", "name": "n" }
+          },
+          { "op": "factorial", "inner": { "op": "var", "name": "n" } }
+        ]
+      },
+      "simplified": "n!",
+      "bigO": "O(n!)"
+    },
+    {
+      "id": "unknown-call-remains-visible",
+      "expr": {
+        "op": "mul",
+        "args": [
+          { "op": "var", "name": "n" },
+          { "op": "call", "name": "Process" }
+        ]
+      },
+      "simplified": "n C(Process)",
+      "bigO": "O(n C(Process))"
+    },
+    {
+      "id": "unknown-call-plus-linear",
+      "expr": {
+        "op": "add",
+        "args": [
+          { "op": "var", "name": "n" },
+          { "op": "call", "name": "Process" }
+        ]
+      },
+      "simplified": "C(Process) + n",
+      "bigO": "O(C(Process) + n)"
+    },
+    {
+      "id": "scaled-call-dominates-bare-call",
+      "expr": {
+        "op": "add",
+        "args": [
+          { "op": "call", "name": "f" },
+          {
+            "op": "mul",
+            "args": [
+              { "op": "var", "name": "n" },
+              { "op": "call", "name": "f" }
+            ]
+          }
+        ]
+      },
+      "simplified": "n C(f)",
+      "bigO": "O(n C(f))"
+    },
+    {
+      "id": "log-of-power-loses-exponent",
+      "expr": {
+        "op": "log",
+        "inner": {
+          "op": "pow",
+          "base": { "op": "var", "name": "n" },
+          "exp": { "op": "const", "value": 2 }
+        }
+      },
+      "simplified": "log n",
+      "bigO": "O(log n)"
+    },
+    {
+      "id": "same-base-powers-combine",
+      "expr": {
+        "op": "mul",
+        "args": [
+          { "op": "var", "name": "n" },
+          { "op": "var", "name": "n" }
+        ]
+      },
+      "simplified": "n²",
+      "bigO": "O(n²)"
+    },
+    {
+      "id": "constant-factors-drop",
+      "expr": {
+        "op": "mul",
+        "args": [
+          { "op": "const", "value": 2 },
+          { "op": "var", "name": "n" }
+        ]
+      },
+      "simplified": "n",
+      "bigO": "O(n)"
+    },
+    {
+      "id": "binomial-stays-visible",
+      "expr": {
+        "op": "binomial",
+        "n": { "op": "var", "name": "n" },
+        "k": { "op": "var", "name": "k" }
+      },
+      "simplified": "C(n, k)",
+      "bigO": "O(C(n, k))"
+    },
+    {
+      "id": "unknown-stays-unknown",
+      "expr": {
+        "op": "unknown",
+        "reason": "opaque"
+      },
+      "simplified": "unknown",
+      "bigO": "O(unknown)"
+    }
+  ]
+}

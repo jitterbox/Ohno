@@ -4,10 +4,13 @@ const watch = process.argv.includes('--watch');
 
 /** @type {esbuild.BuildOptions} */
 const config = {
-  entryPoints: ['src/extension.ts'],
+  entryPoints: {
+    extension: 'src/extension.ts',
+    'ohno-ts-worker': 'src/analysis/typescript/worker.ts',
+  },
   bundle: true,
-  outfile: 'dist/extension.js',
-  external: ['vscode'],
+  outdir: 'dist',
+  external: ['vscode', 'typescript'],
   format: 'cjs',
   platform: 'node',
   target: 'node20',

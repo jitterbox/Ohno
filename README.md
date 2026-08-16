@@ -14,7 +14,10 @@ constant work is still O(1). That is the opposite of cyclomatic complexity
 which counts independent paths and says nothing about input size.
 
 C# is analyzed by a bundled [Roslyn](https://learn.microsoft.com/dotnet/csharp/roslyn-sdk/)
-server. TypeScript is not a selectable language in this release.
+server. TypeScript and JavaScript run in a Node worker — a TS-only
+workspace does not start the Roslyn process. Typed TypeScript uses
+the same honesty rule as C#. Untyped JavaScript stays `C(name)` or
+Unknown rather than inventing a bound.
 
 ## What you see
 
@@ -45,11 +48,13 @@ than one approach remains, a hint asks you to narrow the selection.
 Clear the selection to return to the whole function. Inline
 annotations stay per-function; they do not follow the selection.
 
-Automatic analysis is the **fast** tier: it uses a loaded `.sln` or
+Automatic analysis is the **fast** tier. C# uses a loaded `.sln` or
 `.slnx`, or the `.csproj` found by walking up from the file, when
-that workspace is ready. Otherwise it uses an ad-hoc compilation of the
-buffer. Deep analysis (`Ohno: Run Deep Analysis`) waits for the
-project graph and records a warning if it has to fall back.
+that workspace is ready; otherwise it compiles the buffer ad-hoc.
+TypeScript and JavaScript fast analysis is always ad-hoc (the
+buffer plus the bundled `lib`). Deep analysis (`Ohno: Run Deep
+Analysis`) waits for the C# project graph, or builds a `tsconfig` /
+`jsconfig` `Program`, and records a warning if it has to fall back.
 
 ## What Ohno is not
 
@@ -91,8 +96,11 @@ still applies this same catalog.
 | Language | Default | Engine |
 |---|---|---|
 | C# | On | Roslyn `IOperation` + BCL/LINQ catalog |
+| TypeScript / TSX | On | `ts.Program` + `TypeChecker` in a worker |
+| JavaScript / JSX | On | Same worker; untyped receivers are `C(name)` |
 
-TypeScript is not selectable.
+The TS/JS catalog is not versioned by `target`, same rule as the BCL
+table. Untyped `arr.sort()` is `C(sort)`, not invented O(1).
 
 ## Commands
 
@@ -110,6 +118,10 @@ TypeScript is not selectable.
 |---|---|---|
 | `ohno.enabled` | `true` | Master switch |
 | `ohno.languages.csharp` | `true` | Analyze C# |
+| `ohno.languages.typescript` | `true` | Analyze `.ts` |
+| `ohno.languages.javascript` | `true` | Analyze `.js` (untyped stays `C(name)`) |
+| `ohno.languages.typescriptreact` | `true` | Analyze `.tsx` |
+| `ohno.languages.javascriptreact` | `true` | Analyze `.jsx` |
 | `ohno.analysis.tier` | `fast` | Reserved; deep analysis is on demand (`Ohno: Run Deep Analysis`) |
 | `ohno.annotations.mode` | `inline` | Editor annotations: `inline`, `codelens`, or `off` |
 | `ohno.annotations.nestingDepth` | `2` | Nested subtotal depth |
@@ -167,7 +179,8 @@ provider runs the tree; Ohno does not invent a SQL bound.
 ```
 VS Code / Cursor extension (TypeScript)
   ├─ Analyzer registry (per language)
-  └─ C# adapter ── JSON-RPC stdio ── ComplexityAnalyzer.Server (Roslyn)
+  ├─ C# adapter ── JSON-RPC stdio ── ComplexityAnalyzer.Server (Roslyn)
+  └─ TS/JS adapter ── worker_threads ── ts.Program + TypeChecker
 
 ComplexityAnalyzer.Server
   ├─ Fast: project SemanticModel when ready, else ad-hoc compilation
@@ -178,10 +191,12 @@ ComplexityAnalyzer.CSharp   IOperation walk, patterns, recurrences
 ComplexityAnalyzer.DotNet   BCL / LINQ cost catalog
 ```
 
-The wire contract is `src/shared/protocol.ts` and must stay in sync with
-`src/analyzer/ComplexityAnalyzer.Server/Protocol/Contracts.cs` and
-`src/shared/protocol.schema.json`. `AnalyzeRequest.selection` is the
-optional span for selection-scoped analysis.
+The wire contract is `src/shared/protocol.schema.json`, mirrored by
+`src/shared/protocol.ts` and
+`src/analyzer/ComplexityAnalyzer.Server/Protocol/Contracts.cs`.
+`AnalyzeRequest.selection` is the optional span for selection-scoped
+analysis. Catalog snapshots and algebra goldens also live in
+`src/shared/` — see `src/shared/README.md`.
 
 Roslyn entry points:
 
@@ -198,14 +213,14 @@ dotnet publish src/analyzer/ComplexityAnalyzer.Server \
   -c Release -r linux-x64 --self-contained \
   -o src/extension/server
 cd src/extension && npm install && npx @vscode/vsce package --target linux-x64
-code --install-extension ohno-linux-x64-0.1.6.vsix --force
+code --install-extension ohno-linux-x64-0.1.7.vsix --force
 
 # Windows (from PowerShell or cmd)
 dotnet publish src/analyzer/ComplexityAnalyzer.Server `
   -c Release -r win-x64 --self-contained `
   -o src/extension/server
 cd src/extension && npm install && npx @vscode/vsce package --target win-x64
-code --install-extension ohno-win-x64-0.1.6.vsix --force
+code --install-extension ohno-win-x64-0.1.7.vsix --force
 ```
 
 Use `osx-arm64` the same way. Reload the window after install. The
@@ -239,6 +254,8 @@ Fixtures used by the test suite:
 | `samples/roslyn/RoslynComplexityEdgeCases.cs` | Adversarial / inconclusive hazards |
 | `samples/roslyn/RoslynSpaceComplexityPatterns.cs` | Peak-space idioms |
 | `samples/roslyn/RoslynSpaceComplexityCombinations.cs` | Combined time + space |
+| `samples/typescript/Ts*.ts` | Typed TS catalog, torture, ranking, space |
+| `samples/javascript/Js*.js` | JS honesty: untyped stays `C(name)` |
 
 Release history is in [CHANGELOG.md](CHANGELOG.md).
 
@@ -257,6 +274,8 @@ These are intentional limits, not missing tickets:
 | Every `#if` configuration | One compilation: the project's defines, or none on ad-hoc. Other `#if` bodies are invisible. |
 | `.razor` / `.cshtml` / `.csx` | Not a C# document. Ohno does not run. |
 | `IQueryable`, `dynamic`, expression trees | Reported as unknown / opaque. No invented tight bound. |
+| Untyped JavaScript receiver | `C(name)` / Unknown. No invented O(n) |
+| Prisma / Knex / Angular templates | Out of scope. Opaque call, not a SQL bound |
 
 Loose or untitled `.cs` files always use the ad-hoc compilation
 (SDK implicit usings only). Unresolved types produce a warning
@@ -264,7 +283,8 @@ instead of a silent O(1).
 
 ## Status
 
-v0.1.6. C# is the only selectable language.
+v0.1.7. C#, TypeScript, and JavaScript are on by default. Untyped
+JS is honest and looser than typed TS.
 Estimates are for local computational work as written; they are not a
 substitute for measurement on production data.
 

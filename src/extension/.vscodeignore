@@ -10,5 +10,8 @@ test-results/**
 node_modules/**
 .vscode/**
 !dist/extension.js
+!dist/ohno-ts-worker.js
+!node_modules/typescript/
+!node_modules/typescript/**
 !server/**
 !server/**/*
