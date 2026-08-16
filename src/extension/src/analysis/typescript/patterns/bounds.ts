@@ -1,7 +1,10 @@
 import ts from 'typescript';
 import { namedDimension, type SizeState } from '../walk/sizes';
 import { unknown, type ComplexityExpression } from '../engine';
+
+export type WorklistKind = 'visit' | 'graph' | 'nodes' | 'unknown';
 import {
+  isIndexScan,
   isShrink,
   loopFacts,
   queueFromCondition,
@@ -11,6 +14,7 @@ import {
 export interface BoundMaps {
   heaps: Map<string, ComplexityExpression>;
   worklists: Map<string, ComplexityExpression>;
+  worklistKind: Map<string, WorklistKind>;
   reasons: string[];
 }
 
@@ -21,6 +25,7 @@ export function detectBounds(
   const maps: BoundMaps = {
     heaps: new Map(),
     worklists: new Map(),
+    worklistKind: new Map(),
     reasons: [],
   };
   const visit = (node: ts.Node): void => {
@@ -71,15 +76,28 @@ function recordWorklist(
   const queue = queueFromCondition(node.expression);
   if (!queue) return;
   const facts = loopFacts(node.statement);
-  if (!facts.grows.has(queue) || !facts.shrinks.has(queue)) return;
-  if (facts.visited) {
-    maps.worklists.set(queue, namedDimension(sizes, 'visited'));
+  const indexScan = isIndexScan(node.expression);
+  if (!facts.grows.has(queue)) return;
+  if (!facts.shrinks.has(queue) && !indexScan) return;
+  if (facts.successor) {
+    maps.worklistKind.set(queue, 'nodes');
     maps.reasons.push(
-      'Worklist iterations follow the visited set, not the current length',
+      'Worklist walks linked-list successors; iterations count nodes',
+    );
+    return;
+  }
+  if (facts.visited) {
+    const kind: WorklistKind = facts.edges ? 'graph' : 'visit';
+    maps.worklistKind.set(queue, kind);
+    maps.reasons.push(
+      facts.edges
+        ? 'Graph worklist counts vertices plus edges'
+        : 'Worklist iterations follow the visited set, not the current length',
     );
     return;
   }
   if (facts.shrinkCount > facts.growCount) return;
+  maps.worklistKind.set(queue, 'unknown');
   maps.worklists.set(queue, unknown('worklist'));
   maps.reasons.push(
     'A refill worklist has no visit mark; iterations are not '

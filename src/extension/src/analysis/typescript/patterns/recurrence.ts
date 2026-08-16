@@ -78,6 +78,11 @@ function argKind(call: ts.CallExpression): ArgKind {
 }
 
 function classify(arg: ts.Expression): ArgKind {
+  if (ts.isCallExpression(arg)
+    && ts.isPropertyAccessExpression(arg.expression)
+    && arg.expression.name.text === 'slice') {
+    return 'half';
+  }
   if (!ts.isBinaryExpression(arg)) return 'other';
   const op = arg.operatorToken.kind;
   const right = ts.isNumericLiteral(arg.right)

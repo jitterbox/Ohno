@@ -5,6 +5,7 @@ import {
   type BuiltinEntry,
 } from '../catalog/builtins';
 import {
+  add,
   call,
   conditional,
   loop,
@@ -14,17 +15,27 @@ import {
   One,
   sequential,
   simplify,
+  unknown,
   unitCost,
+  variable,
   type ComposedCost,
   type ComplexityExpression,
   type LineSpan,
 } from '../engine';
 import { rangeOf } from './functions';
-import { queueFromCondition } from '../patterns/facts';
+import { loopFacts, queueFromCondition } from '../patterns/facts';
 import {
   callIsTrivialRegex,
   isRegexCall,
 } from '../patterns/regex';
+import {
+  binarySearchBound,
+  countdownBound,
+  isUnprovenCountdown,
+  nullWalkBound,
+  numericParamBound,
+  twoPointerBound,
+} from './loopShapes';
 import {
   createSizeState,
   dimensionFor,
@@ -42,6 +53,12 @@ export interface WalkContext {
   visited: Set<ts.Node>;
   reasons: string[];
   worklists: Map<string, ComplexityExpression>;
+  worklistKind: Map<string, 'visit' | 'graph' | 'nodes' | 'unknown'>;
+  loopStack: ComplexityExpression[];
+  allocs: ComplexityExpression[];
+  flattenAdj: boolean;
+  graphWalked: boolean;
+  inTwoPointer: boolean;
 }
 
 export function createContext(
@@ -55,6 +72,12 @@ export function createContext(
     visited: new Set(),
     reasons: [],
     worklists: new Map(),
+    worklistKind: new Map(),
+    loopStack: [],
+    allocs: [],
+    flattenAdj: false,
+    graphWalked: false,
+    inTwoPointer: false,
   };
 }
 
@@ -96,6 +119,13 @@ function walkExpression(
 ): ComposedCost {
   if (ts.isCallExpression(node)) return walkCall(ctx, node, span);
   if (ts.isNewExpression(node)) return walkNew(ctx, node, span);
+  if (ts.isSpreadElement(node) || ts.isSpreadAssignment(node)) {
+    const size = dimensionFor(
+      ctx.sizes, node.expression, node.expression.getText(),
+    );
+    ctx.allocs.push(size);
+    return ofCost(size, size, 'spread', 'spread', span);
+  }
   if (ts.isAwaitExpression(node)) return walkNode(ctx, node.expression);
   if (ts.isBinaryExpression(node)) return walkBinary(ctx, node, span);
   if (ts.isPropertyAccessExpression(node)) {
@@ -152,8 +182,33 @@ function walkLoop(
     );
   }
   const bound = loopBound(ctx, node);
+  const prevFlat = ctx.flattenAdj;
+  const prevGraph = ctx.graphWalked;
+  const prevTp = ctx.inTwoPointer;
+  if ((ts.isWhileStatement(node) || ts.isDoStatement(node))
+    && twoPointerBound(node, ctx.sizes)) {
+    ctx.inTwoPointer = true;
+  }
+  if (isGraphWorklist(ctx, node)) {
+    ctx.flattenAdj = true;
+    ctx.graphWalked = true;
+  } else {
+    ctx.graphWalked = false;
+  }
+  ctx.loopStack.push(bound);
   const body = walkNode(ctx, node.statement);
+  ctx.loopStack.pop();
+  const innerGraph = ctx.graphWalked;
+  ctx.flattenAdj = prevFlat;
+  ctx.graphWalked = prevGraph || innerGraph;
+  ctx.inTwoPointer = prevTp;
   const concat = stringConcatInLoop(ctx, node.statement);
+  if (ts.isForStatement(node) && containsGraphWhile(node.statement, ctx)) {
+    return sequential([
+      ofCost(bound, One, 'loop', loopLabel(node), span),
+      body,
+    ], span);
+  }
   const cost = loop(bound, body, loopLabel(node), span);
   if (!concat) return cost;
   return { ...cost, time: simplify(mul(bound, bound)) };
@@ -198,6 +253,9 @@ function walkCall(
   node: ts.CallExpression,
   span: LineSpan,
 ): ComposedCost {
+  if (ts.isNewExpression(node.expression)) {
+    return walkNode(ctx, node.expression);
+  }
   const name = callName(node);
   const receiver = ts.isPropertyAccessExpression(node.expression)
     ? node.expression.expression
@@ -222,7 +280,9 @@ function walkCall(
     ? lookupBuiltin(typeName, name, arity)
     : undefined;
   if (entry && receiver && !receiverIsOpaque(ctx, receiver)) {
-    return bindCall(ctx, node, entry, receiver, name, span);
+    return withReceiver(ctx, receiver, bindCall(
+      ctx, node, entry, receiver, name, span,
+    ));
   }
   if (entry && !receiver) {
     return bindCall(ctx, node, entry, node.arguments[0], name, span);
@@ -242,9 +302,11 @@ function walkNew(
   const arg = node.arguments?.[0];
   if ((name === 'Array' || name === 'Map' || name === 'Set') && arg) {
     const size = dimensionFor(ctx.sizes, arg, arg.getText());
+    ctx.allocs.push(size);
     return ofCost(size, size, 'new', name, span);
   }
-  if (name === 'Array' || name === 'Map' || name === 'Set') {
+  if (name === 'Array' || name === 'Map' || name === 'Set'
+    || name === 'MinHeap' || name === 'ListNode') {
     return unitCost('new', name, span);
   }
   return ofCost(call(name), One, 'new', name, span, 'low');
@@ -268,6 +330,8 @@ function walkProperty(
   if (node.name.text === 'length' || node.name.text === 'size') {
     return unitCost('field', node.name.text, span);
   }
+  const getter = localGetter(ctx, node);
+  if (getter) return walkNode(ctx, getter);
   return walkNode(ctx, node.expression);
 }
 
@@ -277,8 +341,15 @@ function walkIndex(
   span: LineSpan,
 ): ComposedCost {
   const type = ctx.checker.getTypeAtLocation(node.expression);
-  if (sizedTypeName(type) === 'Array') {
-    return unitCost('index', 'array index', span);
+  const sized = sizedTypeName(type);
+  if (sized === 'Array' || sized === 'String') {
+    return unitCost('index', 'index', span);
+  }
+  if (!isOpaqueType(type) && type.getNumberIndexType()) {
+    return unitCost('index', 'index', span);
+  }
+  if (!isOpaqueType(type) && type.getStringIndexType()) {
+    return ofCost(One, One, 'index', 'index', span, 'medium');
   }
   return ofCost(call('get'), One, 'index', 'index', span, 'low');
 }
@@ -316,6 +387,7 @@ function bindCall(
   if (entry.kind !== 'exact') {
     ctx.reasons.push(`${name} is ${entry.kind}`);
   }
+  noteGrow(ctx, name, receiver);
   if (!entry.loop) {
     return ofCost(time, space, 'call', name, span, confidence);
   }
@@ -343,6 +415,10 @@ function loopBound(
     | ts.WhileStatement | ts.DoStatement,
 ): ComplexityExpression {
   if (ts.isForOfStatement(node)) {
+    if (ctx.flattenAdj
+      && ts.isElementAccessExpression(node.expression)) {
+      return One;
+    }
     return dimensionFor(
       ctx.sizes, node.expression, node.expression.getText(),
     );
@@ -350,13 +426,49 @@ function loopBound(
   if (ts.isForStatement(node) && node.condition) {
     const logBound = logUpdate(node);
     if (logBound) return log(namedDimension(ctx.sizes, 'n'));
-    const length = lengthBound(ctx, node.condition);
+    const length = lengthBound(ctx, node.condition)
+      ?? initLengthBound(ctx, node);
     if (length) return length;
+    const numeric = numericParamBound(
+      node.condition, ctx.sizes, incrementName(node),
+    );
+    if (numeric) return numeric;
   }
   if (ts.isWhileStatement(node) || ts.isDoStatement(node)) {
     const queue = queueFromCondition(node.expression);
+    if (queue && ctx.worklistKind.has(queue)) {
+      return resolveWorklist(ctx, queue);
+    }
     if (queue && ctx.worklists.has(queue)) {
       return ctx.worklists.get(queue)!;
+    }
+    const binary = binarySearchBound(node, ctx.sizes);
+    if (binary) return binary;
+    const pointers = twoPointerBound(node, ctx.sizes);
+    if (pointers) {
+      return ctx.inTwoPointer ? One : pointers;
+    }
+    const count = countdownBound(node, ctx.sizes);
+    if (count) {
+      return ctx.loopStack.length > 0 ? One : count;
+    }
+    if (queue && ctx.loopStack.length > 0) {
+      const facts = loopFacts(node.statement);
+      if (facts.shrinks.has(queue) && !facts.grows.has(queue)) {
+        return One;
+      }
+    }
+    if (ctx.loopStack.length > 0 && pointerAdvance(node)) {
+      return One;
+    }
+    if (isUnprovenCountdown(node)) {
+      ctx.reasons.push('loop update is not a proven shrinkage');
+      return unknown('unproven-loop');
+    }
+    const chain = nullWalkBound(node, ctx.sizes);
+    if (chain) {
+      ctx.reasons.push('null-terminated walk assumes a finite chain');
+      return chain;
     }
     const length = lengthBound(ctx, node.expression);
     if (length) return length;
@@ -383,6 +495,15 @@ function lengthAccess(
   if (ts.isPropertyAccessExpression(node)
     && (node.name.text === 'length' || node.name.text === 'size')) {
     return node;
+  }
+  if (ts.isParenthesizedExpression(node)) {
+    return lengthAccess(node.expression);
+  }
+  if (ts.isPrefixUnaryExpression(node)) {
+    return lengthAccess(node.operand);
+  }
+  if (ts.isBinaryExpression(node)) {
+    return lengthAccess(node.left) ?? lengthAccess(node.right);
   }
   return undefined;
 }
@@ -450,6 +571,20 @@ function receiverIsOpaque(
   return isOpaqueType(ctx.checker.getTypeAtLocation(receiver));
 }
 
+function localGetter(
+  ctx: WalkContext,
+  node: ts.PropertyAccessExpression,
+): ts.Node | undefined {
+  const symbol = ctx.checker.getSymbolAtLocation(node.name);
+  const decl = symbol?.declarations?.find((item) =>
+    ts.isGetAccessorDeclaration(item) && item.body);
+  if (!decl || !ts.isGetAccessorDeclaration(decl) || !decl.body) {
+    return undefined;
+  }
+  if (decl.getSourceFile() !== ctx.source) return undefined;
+  return decl.body;
+}
+
 function localBody(
   ctx: WalkContext,
   node: ts.CallExpression,
@@ -459,6 +594,136 @@ function localBody(
   if (!decl || !ts.isFunctionLike(decl) || !decl.body) return undefined;
   if (decl.getSourceFile() !== ctx.source) return undefined;
   return decl;
+}
+
+function withReceiver(
+  ctx: WalkContext,
+  receiver: ts.Expression,
+  cost: ComposedCost,
+): ComposedCost {
+  if (ts.isIdentifier(receiver)) return cost;
+  return sequential([walkNode(ctx, receiver), cost]);
+}
+
+function containsGraphWhile(
+  body: ts.Node,
+  ctx: WalkContext,
+): boolean {
+  let found = false;
+  const visit = (node: ts.Node): void => {
+    if (found) return;
+    if ((ts.isWhileStatement(node) || ts.isDoStatement(node))
+      && isGraphWorklist(ctx, node)) {
+      found = true;
+      return;
+    }
+    ts.forEachChild(node, visit);
+  };
+  visit(body);
+  return found;
+}
+
+function pointerAdvance(
+  node: ts.WhileStatement | ts.DoStatement,
+): boolean {
+  const text = node.statement.getText();
+  return /\b(left|right|lo|hi|i|j)\s*(\+\+|--)/.test(text);
+}
+
+function incrementName(
+  node: ts.ForStatement,
+): string | undefined {
+  const inc = node.incrementor;
+  if (!inc) return undefined;
+  if ((ts.isPrefixUnaryExpression(inc)
+    || ts.isPostfixUnaryExpression(inc))
+    && ts.isIdentifier(inc.operand)) {
+    return inc.operand.text;
+  }
+  if (ts.isBinaryExpression(inc) && ts.isIdentifier(inc.left)) {
+    return inc.left.text;
+  }
+  return undefined;
+}
+
+function initLengthBound(
+  ctx: WalkContext,
+  node: ts.ForStatement,
+): ComplexityExpression | undefined {
+  const expr = initValue(node);
+  if (!expr) return undefined;
+  const length = lengthBound(ctx, expr);
+  if (length) return length;
+  if (ts.isIdentifier(expr)) return namedDimension(ctx.sizes, expr.text);
+  return undefined;
+}
+
+function initValue(
+  node: ts.ForStatement,
+): ts.Expression | undefined {
+  const init = node.initializer;
+  if (!init) return undefined;
+  if (ts.isVariableDeclarationList(init)) {
+    return init.declarations[0]?.initializer;
+  }
+  if (ts.isBinaryExpression(init)) return init.right;
+  return undefined;
+}
+
+function noteGrow(
+  ctx: WalkContext,
+  name: string,
+  receiver?: ts.Node,
+): void {
+  if (ctx.loopStack.length === 0) return;
+  if (name !== 'set' && name !== 'add' && name !== 'push') return;
+  const bound = ctx.loopStack[ctx.loopStack.length - 1];
+  if (receiver && ts.isIdentifier(receiver)
+    && ctx.sizes.heaps.has(receiver.text)
+    && name === 'push') {
+    return;
+  }
+  ctx.allocs.push(bound);
+  if (receiver && ts.isIdentifier(receiver)
+    && !ctx.sizes.heaps.has(receiver.text)) {
+    ctx.sizes.heaps.set(receiver.text, bound);
+  }
+}
+
+function resolveWorklist(
+  ctx: WalkContext,
+  queue: string,
+): ComplexityExpression {
+  const kind = ctx.worklistKind.get(queue);
+  if (kind === 'unknown') return unknown('worklist');
+  if (kind === 'nodes') return namedDimension(ctx.sizes, 'n');
+  const visit = existingDim(ctx, 0, 'n');
+  if (!ctx.sizes.heaps.has(queue)) ctx.sizes.heaps.set(queue, visit);
+  if (kind === 'graph') {
+    return add(visit, existingDim(ctx, 1, 'm'));
+  }
+  return visit;
+}
+
+function existingDim(
+  ctx: WalkContext,
+  index: number,
+  fallback: string,
+): ComplexityExpression {
+  const dim = ctx.sizes.dims[index];
+  return dim ? variable(dim.variable) : namedDimension(ctx.sizes, fallback);
+}
+
+function isGraphWorklist(
+  ctx: WalkContext,
+  node: ts.ForStatement | ts.ForOfStatement
+    | ts.WhileStatement | ts.DoStatement,
+): boolean {
+  if (!ts.isWhileStatement(node) && !ts.isDoStatement(node)) {
+    return false;
+  }
+  const queue = queueFromCondition(node.expression);
+  return !!queue && ctx.worklistKind.get(queue) === 'graph';
 }
 
 function noteUnresolved(

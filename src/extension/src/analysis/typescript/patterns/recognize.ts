@@ -1,7 +1,8 @@
 import ts from 'typescript';
 import type { RecognizedPattern } from '../engine';
 import { rangeOf } from '../walk/functions';
-import { loopFacts, queueFromCondition } from './facts';
+import { isIndexScan, loopFacts, queueFromCondition } from './facts';
+import { isUnprovenCountdown } from '../walk/loopShapes';
 import { annotatePattern, unknownPattern } from './make';
 import {
   callIsRegexUse,
@@ -50,6 +51,7 @@ function match(
     ?? regex(node, span)
     ?? awaitFor(node, span)
     ?? worklist(node, span)
+    ?? unproven(node, span)
     ?? anyDispatch(node, checker, span);
 }
 
@@ -187,8 +189,16 @@ function worklist(
   const queue = queueFromCondition(node.expression);
   if (!queue) return undefined;
   const facts = loopFacts(node.statement);
-  if (!facts.grows.has(queue) || !facts.shrinks.has(queue)) {
-    return undefined;
+  const indexScan = isIndexScan(node.expression);
+  if (!facts.grows.has(queue)) return undefined;
+  if (!facts.shrinks.has(queue) && !indexScan) return undefined;
+  if (facts.successor) {
+    return annotatePattern(
+      'graph-traversal',
+      'Linked worklist',
+      'iterations count linked-list nodes, not the current length',
+      span,
+    );
   }
   if (facts.visited) {
     return annotatePattern(
@@ -203,6 +213,22 @@ function worklist(
     'unbounded-worklist',
     'Unbounded worklist',
     'the queue is refilled without a visit mark and may not halt',
+    span,
+  );
+}
+
+function unproven(
+  node: ts.Node,
+  span: ReturnType<typeof rangeOf>,
+): RecognizedPattern | undefined {
+  if (!ts.isWhileStatement(node) && !ts.isDoStatement(node)) {
+    return undefined;
+  }
+  if (!isUnprovenCountdown(node)) return undefined;
+  return unknownPattern(
+    'unproven-loop',
+    'Unproven loop',
+    'the update is not a proven shrinkage, so iterations are unknown',
     span,
   );
 }

@@ -11,8 +11,10 @@ import {
   format,
   formatBigO,
   formatExplanation,
+  peak,
   prune,
   simplify,
+  type ComplexityExpression,
   type ComposedCost,
   type RecognizedPattern,
 } from './engine';
@@ -71,7 +73,9 @@ function analyzeOne(
   const bounds = detectBounds(root, ctx.sizes);
   ctx.sizes.heaps = bounds.heaps;
   ctx.worklists = bounds.worklists;
+  ctx.worklistKind = bounds.worklistKind;
   ctx.reasons.push(...bounds.reasons);
+  for (const bound of bounds.heaps.values()) ctx.allocs.push(bound);
   const raw = recognize(fn.node, source, checker);
   const rec = tryRecurrence(fn.name, fn.body);
   const walked = rec?.cost ?? walkNode(ctx, root);
@@ -81,7 +85,7 @@ function analyzeOne(
     kind: fn.kind,
     range: fn.range,
     signatureRange: fn.signatureRange,
-    cost: walked,
+    cost: withAllocs(walked, ctx.allocs),
     patterns,
     reasons: ctx.reasons,
     dims: ctx.sizes.dims,
@@ -104,7 +108,9 @@ function analyzeSelection(
   const bounds = detectBounds(root, ctx.sizes);
   ctx.sizes.heaps = bounds.heaps;
   ctx.worklists = bounds.worklists;
+  ctx.worklistKind = bounds.worklistKind;
   ctx.reasons.push(...bounds.reasons);
+  for (const bound of bounds.heaps.values()) ctx.allocs.push(bound);
   const cost = walkList(ctx, nodes, selection);
   const raw = recognize(root, source, checker);
   const patterns = refine(raw, cost.time);
@@ -113,7 +119,7 @@ function analyzeSelection(
     kind: enclosing?.kind ?? 'method',
     range: selection,
     signatureRange: selection,
-    cost,
+    cost: withAllocs(cost, ctx.allocs),
     patterns,
     reasons: ctx.reasons,
     dims: ctx.sizes.dims,
@@ -215,6 +221,17 @@ function toProtocolPattern(item: RecognizedPattern): ProtocolPattern {
     reason: item.reason,
     effect: item.effect,
     range: item.range,
+  };
+}
+
+function withAllocs(
+  cost: ComposedCost,
+  allocs: ComplexityExpression[],
+): ComposedCost {
+  if (allocs.length === 0) return cost;
+  return {
+    ...cost,
+    space: simplify(peak([cost.space, ...allocs])),
   };
 }
 

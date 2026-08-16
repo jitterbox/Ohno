@@ -43,6 +43,7 @@ export function createAdHocProgram(
     module: ts.ModuleKind.ESNext,
     lib: ['lib.esnext.d.ts'],
     allowJs: true,
+    checkJs: true,
     noEmit: true,
     skipLibCheck: true,
   };

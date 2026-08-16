@@ -63,6 +63,27 @@ addAll('Array', 'join', [0, 1], 'receiver', 'exact', 'receiver');
 addAll('Array', 'flat', [0, 1], 'receiver', 'exact', 'receiver');
 addAll('Array', 'reverse', [0], 'receiver');
 addAll('Array', 'toReversed', [0], 'receiver', 'exact', 'receiver');
+addAll('Array', 'fill', [1, 2, 3], 'receiver', 'exact', 'receiver');
+addAll('Array', 'copyWithin', [1, 2, 3], 'receiver');
+addAll('Array', 'from', [1, 2], 'receiver', 'exact', 'receiver', true);
+addAll('Array', 'toSpliced', [0, 1, 2, 3], 'receiver', 'exact', 'receiver');
+
+addAll('Math', 'min', [1, 2, 3], 'constant');
+addAll('Math', 'max', [1, 2, 3], 'constant');
+addAll('Math', 'abs', [1], 'constant');
+addAll('Math', 'floor', [1], 'constant');
+addAll('Math', 'ceil', [1], 'constant');
+addAll('Math', 'round', [1], 'constant');
+addAll('Math', 'trunc', [1], 'constant');
+addAll('Math', 'sign', [1], 'constant');
+addAll('Math', 'sqrt', [1], 'constant');
+addAll('Math', 'log2', [1], 'constant');
+addAll('Math', 'hypot', [1, 2, 3], 'constant');
+
+add('MinHeap', 'size', 0, 'constant');
+addAll('MinHeap', 'push', [1, 2], 'logReceiver');
+add('MinHeap', 'pop', 0, 'logReceiver');
+add('MinHeap', 'peek', 0, 'constant');
 
 add('Map', 'size', 0, 'constant');
 add('Map', 'get', 1, 'constant', 'expected');
@@ -91,6 +112,7 @@ addAll('String', 'endsWith', [1, 2], 'receiver');
 addAll('String', 'replace', [2], 'receiver', 'exact', 'receiver');
 addAll('String', 'match', [1], 'receiver', 'exact', 'receiver');
 
+addAll('Object', 'create', [1, 2], 'constant');
 addAll('Object', 'keys', [1], 'receiver', 'exact', 'receiver');
 addAll('Object', 'values', [1], 'receiver', 'exact', 'receiver');
 addAll('Object', 'entries', [1], 'receiver', 'exact', 'receiver');
@@ -110,6 +132,15 @@ export function builtinTypeName(name: string): string | undefined {
   switch (name) {
     case 'Array':
     case 'ReadonlyArray':
+    case 'Int8Array':
+    case 'Uint8Array':
+    case 'Int16Array':
+    case 'Uint16Array':
+    case 'Int32Array':
+    case 'Uint32Array':
+    case 'Float32Array':
+    case 'Float64Array':
+    case 'IArguments':
       return 'Array';
     case 'Map':
     case 'ReadonlyMap':
@@ -121,9 +152,16 @@ export function builtinTypeName(name: string): string | undefined {
     case 'string':
       return 'String';
     case 'Object':
+    case 'ObjectConstructor':
       return 'Object';
+    case 'ArrayConstructor':
+      return 'Array';
     case 'JSON':
       return 'JSON';
+    case 'Math':
+      return 'Math';
+    case 'MinHeap':
+      return 'MinHeap';
     default:
       return undefined;
   }

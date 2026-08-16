@@ -9,6 +9,8 @@ export interface LoopFacts {
   grows: Set<string>;
   shrinks: Set<string>;
   visited: boolean;
+  edges: boolean;
+  successor: boolean;
   growCount: number;
   shrinkCount: number;
 }
@@ -18,11 +20,15 @@ export function loopFacts(body: ts.Node): LoopFacts {
     grows: new Set(),
     shrinks: new Set(),
     visited: false,
+    edges: false,
+    successor: false,
     growCount: 0,
     shrinkCount: 0,
   };
   const visit = (node: ts.Node): void => {
     recordCall(node, facts);
+    recordVisitWrite(node, facts);
+    recordEdgeWalk(node, facts);
     ts.forEachChild(node, visit);
   };
   visit(body);
@@ -39,6 +45,16 @@ export function queueFromCondition(
   return access ? receiverName(access.expression) : undefined;
 }
 
+export function isIndexScan(condition: ts.Expression): boolean {
+  if (!ts.isBinaryExpression(condition)) return false;
+  const access = lengthAccess(condition.right)
+    ?? lengthAccess(condition.left);
+  const other = lengthAccess(condition.right)
+    ? condition.left
+    : condition.right;
+  return !!access && ts.isIdentifier(other);
+}
+
 export function lengthAccess(
   node: ts.Expression,
 ): ts.PropertyAccessExpression | undefined {
@@ -48,6 +64,12 @@ export function lengthAccess(
   }
   if (ts.isPrefixUnaryExpression(node)) {
     return lengthAccess(node.operand);
+  }
+  if (ts.isParenthesizedExpression(node)) {
+    return lengthAccess(node.expression);
+  }
+  if (ts.isBinaryExpression(node)) {
+    return lengthAccess(node.left) ?? lengthAccess(node.right);
   }
   return undefined;
 }
@@ -72,6 +94,7 @@ function recordCall(node: ts.Node, facts: LoopFacts): void {
     if (isGrow(name)) {
       facts.growCount++;
       if (owner) facts.grows.add(owner);
+      if (node.arguments.some(isSuccessorArg)) facts.successor = true;
     }
     if (isShrink(name)) {
       facts.shrinkCount++;
@@ -81,6 +104,51 @@ function recordCall(node: ts.Node, facts: LoopFacts): void {
       facts.visited = facts.visited || looksLikeSet(node);
     }
   }
+}
+
+function recordVisitWrite(node: ts.Node, facts: LoopFacts): void {
+  const name = writtenArray(node);
+  if (name && /visit|seen|indeg|dist|done|mark/i.test(name)) {
+    facts.visited = true;
+  }
+}
+
+function recordEdgeWalk(node: ts.Node, facts: LoopFacts): void {
+  if (ts.isForOfStatement(node)
+    && ts.isElementAccessExpression(node.expression)) {
+    facts.edges = true;
+  }
+}
+
+function writtenArray(node: ts.Node): string | undefined {
+  const target = assignmentTarget(node);
+  if (target && ts.isElementAccessExpression(target)
+    && ts.isIdentifier(target.expression)) {
+    return target.expression.text;
+  }
+  return undefined;
+}
+
+function assignmentTarget(node: ts.Node): ts.Expression | undefined {
+  if (ts.isPrefixUnaryExpression(node)
+    || ts.isPostfixUnaryExpression(node)) {
+    return node.operand;
+  }
+  if (ts.isBinaryExpression(node) && isAssign(node.operatorToken.kind)) {
+    return node.left;
+  }
+  return undefined;
+}
+
+function isAssign(kind: ts.SyntaxKind): boolean {
+  return kind === ts.SyntaxKind.EqualsToken
+    || kind === ts.SyntaxKind.PlusEqualsToken
+    || kind === ts.SyntaxKind.MinusEqualsToken;
+}
+
+function isSuccessorArg(arg: ts.Expression): boolean {
+  const text = arg.getText();
+  return /\.next\b|\.Next\b/.test(text);
 }
 
 function looksLikeSet(node: ts.CallExpression): boolean {
