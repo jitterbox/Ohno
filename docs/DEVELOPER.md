@@ -486,6 +486,20 @@ Only put a member in `ConstantTimePrimitives` when its cost is fixed
 regardless of any input size. Anything size-dependent belongs in the
 catalog with a real template.
 
+**Do not version catalog entries by TFM.** The table is the current
+BCL. The same source is meant to get the same bound on every
+supported runtime. Constant-factor changes (SIMD `IndexOf`,
+`SearchValues`, culture vs ordinal `string.IndexOf`) stay the same
+`SizeKind`. The few historical class changes — `List.Sort` /
+`Array.Sort` worst-case O(n²) before Framework 4.5 (now introsort),
+hash-flooding `Dictionary`/`HashSet` string keys on Framework
+without randomized hashing — are recorded as the modern cost
+(`sorts: true`, `CostKind.Expected`). Fast analysis sees the
+server's net10 platform assemblies; deep analysis uses
+`MSBuildWorkspace` so a `net8.0` project binds the APIs that
+exist there, then looks those members up in this same table. A
+member that does not exist on the user's TFM simply never appears.
+
 ### Add a hazard pattern
 
 Add a detector in `PatternRecognizer.Match`. Return `Unknown`,

@@ -18,6 +18,13 @@ down at the time.
   deprecated; a leftover `false` with the default `inline` mode is
   treated as `off`.
 
+### Documentation
+
+- README and developer docs state that the BCL catalog is not
+  versioned by TFM: the same source gets the same bound; historical
+  class changes (`List.Sort` worst-case, hash flooding) are reported
+  as the modern cost.
+
 ## [0.1.5] — 2026-08-15
 
 Dictionaries and read-only indexers now resolve to real costs instead
@@ -231,6 +238,8 @@ guessing in the places it used to.
   on-demand deep analysis.
 - A GitHub Actions workflow packaging per-platform VSIX artifacts.
 
+[Unreleased]: https://github.com/jitterbox/Ohno/compare/v0.1.5...HEAD
+[0.1.5]: https://github.com/jitterbox/Ohno/releases/tag/v0.1.5
 [0.1.4]: https://github.com/jitterbox/Ohno/releases/tag/v0.1.4
 [0.1.3]: https://github.com/jitterbox/Ohno/releases/tag/v0.1.3
 [0.1.2]: https://github.com/jitterbox/Ohno/releases/tag/v0.1.2

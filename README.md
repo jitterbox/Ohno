@@ -74,6 +74,18 @@ is carried as `C(name)` at Low confidence, naming what is missing —
 never assumed free. Constant time is something Ohno has to know, not
 something it falls back to.
 
+Library costs are a **single current-BCL catalog**, not a per-runtime
+table. The same source gets the same bound on `net8.0` as on `net10.0`.
+SIMD and other constant-factor speedups do not appear. The rare cases
+where the *class* of a call actually changed — `List.Sort` worst-case
+O(n²) before .NET Framework 4.5, hash-flooding `Dictionary` lookups
+on Framework without randomized string hashing — are not versioned;
+Ohno reports the modern bound (introsort, expected O(1)). Fast
+analysis compiles the buffer against the bundled server's net10
+assemblies even when the `.csproj` targets something older. Deep
+analysis uses the project's real TFM for *which APIs exist*, then
+still applies this same catalog.
+
 ## Supported languages
 
 | Language | Default | Engine |
@@ -113,7 +125,8 @@ TypeScript is not selectable.
 
 **Time** is a worst-case symbolic bound in the input dimensions Ohno
 inferred. Independent sizes stay independent: O(n + m), not “O(n)” by
-guessing m ≤ n.
+guessing m ≤ n. A cataloged library call uses the current BCL cost,
+not the project's `TargetFramework`.
 
 **Space** is *peak simultaneously retained* auxiliary memory, not the
 sum of every allocation. Allocating `int[n]` each iteration and dropping
