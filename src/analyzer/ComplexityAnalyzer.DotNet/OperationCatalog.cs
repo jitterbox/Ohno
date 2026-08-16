@@ -33,6 +33,7 @@ public sealed class OperationCatalog
         catalog.RegisterSorted();
         catalog.RegisterStringBuilder();
         catalog.RegisterImmutable();
+        catalog.RegisterConcurrent();
         catalog.RegisterSpans();
         catalog.RegisterFrozen();
         catalog.RegisterRegex();
@@ -225,6 +226,17 @@ public sealed class OperationCatalog
 
     private void RegisterList()
     {
+        // Read-only list contracts promise an O(1) indexer.
+        foreach (var face in new[]
+        {
+            "System.Collections.Generic.IReadOnlyList`1",
+            "System.Collections.Generic.IList`1",
+        })
+        {
+            Method(face, "get_Count", 0, SizeKind.Constant);
+            Method(face, "get_Item", 1, SizeKind.Constant);
+        }
+
         const string list = "System.Collections.Generic.List`1";
         Method(list, "get_Count", 0, SizeKind.Constant);
         Method(list, "get_Item", 1, SizeKind.Constant);
@@ -282,6 +294,19 @@ public sealed class OperationCatalog
 
     private void RegisterDictionary()
     {
+        // Read-only dictionary contracts promise an expected O(1) indexer.
+        foreach (var face in new[]
+        {
+            "System.Collections.Generic.IReadOnlyDictionary`2",
+            "System.Collections.Generic.IDictionary`2",
+        })
+        {
+            Method(face, "get_Count", 0, SizeKind.Constant);
+            Method(face, "get_Item", 1, SizeKind.Constant, CostKind.Expected);
+            Method(face, "TryGetValue", 2, SizeKind.Constant, CostKind.Expected);
+            Method(face, "ContainsKey", 1, SizeKind.Constant, CostKind.Expected);
+        }
+
         const string dict = "System.Collections.Generic.Dictionary`2";
         Method(dict, "get_Count", 0, SizeKind.Constant);
         Method(dict, "get_Item", 1, SizeKind.Constant, CostKind.Expected);
@@ -612,6 +637,34 @@ public sealed class OperationCatalog
         const string array = "System.Collections.Immutable.ImmutableArray`1";
         Method(array, "get_Length", 0, SizeKind.Constant);
         Method(array, "get_Item", 1, SizeKind.Constant);
+
+        // ImmutableDictionary is an AVL tree: lookups are O(log n).
+        const string dict = "System.Collections.Immutable.ImmutableDictionary`2";
+        Method(dict, "get_Count", 0, SizeKind.Constant);
+        Method(dict, "get_Item", 1, SizeKind.LogReceiver);
+        Method(dict, "TryGetValue", 2, SizeKind.LogReceiver);
+        Method(dict, "ContainsKey", 1, SizeKind.LogReceiver);
+        Method(dict, "Add", 2, SizeKind.LogReceiver,
+            delta: SizeDeltaKind.Increment);
+        Method(dict, "Remove", 1, SizeKind.LogReceiver,
+            delta: SizeDeltaKind.Decrement);
+    }
+
+    private void RegisterConcurrent()
+    {
+        // Striped locking keeps reads effectively O(1) expected.
+        const string dict = "System.Collections.Concurrent.ConcurrentDictionary`2";
+        Method(dict, "get_Count", 0, SizeKind.Receiver, CostKind.Amortized);
+        Method(dict, "get_Item", 1, SizeKind.Constant, CostKind.Expected);
+        Method(dict, "set_Item", 2, SizeKind.Constant, CostKind.Expected);
+        Method(dict, "TryGetValue", 2, SizeKind.Constant, CostKind.Expected);
+        Method(dict, "ContainsKey", 1, SizeKind.Constant, CostKind.Expected);
+        Method(dict, "TryAdd", 2, SizeKind.Constant, CostKind.Expected,
+            delta: SizeDeltaKind.Increment);
+        Method(dict, "TryRemove", 2, SizeKind.Constant, CostKind.Expected,
+            delta: SizeDeltaKind.Decrement);
+        Method(dict, "GetOrAdd", 2, SizeKind.Constant, CostKind.Expected,
+            delta: SizeDeltaKind.Increment);
     }
 
     private void RegisterLinq()

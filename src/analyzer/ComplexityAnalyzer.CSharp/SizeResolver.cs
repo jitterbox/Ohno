@@ -27,7 +27,7 @@ internal static class SizeResolver
         {
             IParameterReferenceOperation p => state.SizeOf(p.Parameter),
             ILocalReferenceOperation l => LocalSize(l, state),
-            IFieldReferenceOperation f => state.SizeOf(f.Field),
+            IFieldReferenceOperation f => FromField(f, state),
             IPropertyReferenceOperation prop => FromProperty(prop, state),
             IArrayCreationOperation a => FromArrayCreation(a, state),
             IArrayElementReferenceOperation e =>
@@ -39,6 +39,25 @@ internal static class SizeResolver
             IObjectCreationOperation => Cx.One,
             _ => Cx.Var("n"),
         };
+    }
+
+    /// <summary>
+    /// A fixed-size scalar — a constant or static readonly integral —
+    /// is Θ(1), not an input dimension. <c>Repeat(int.MaxValue, n)</c>
+    /// sizes by <c>n</c>, not <c>MaxValue</c>. A collection field is
+    /// different: even a static readonly dictionary still has a size,
+    /// so it keeps its own dimension rather than collapsing to 1.
+    /// </summary>
+    private static ComplexityExpression FromField(
+        IFieldReferenceOperation field, AnalysisState state)
+    {
+        var isScalar =
+            field.Field.IsConst
+            || (field.Field.IsReadOnly && field.Field.IsStatic);
+        if (isScalar && !DimensionInferrer.IsCollection(field.Type))
+            return Cx.One;
+
+        return state.SizeOf(field.Field);
     }
 
     private static ComplexityExpression LocalSize(

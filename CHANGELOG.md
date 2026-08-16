@@ -9,6 +9,33 @@ history after the fact — this file did not exist while those releases
 were made, so they summarize what shipped rather than what was written
 down at the time.
 
+## [0.1.5] — 2026-08-15
+
+Dictionaries and read-only indexers now resolve to real costs instead
+of dangling as `C(name)` at Low confidence.
+
+### Fixed
+
+- `ConcurrentDictionary` reads are O(1) expected; its `Count` is O(n)
+  amortized. `ImmutableDictionary` is an AVL tree, so its indexer and
+  `TryGetValue` are O(log n). Both were uncataloged.
+- A compound assignment (`s += d[k]`) was mistaken for a write target,
+  so the indexer never reached the catalog. Only a plain write
+  (`d[k] = v`) skips the read cost now.
+- A `static readonly` collection field kept its size after the
+  constant-scalar fix collapsed it to 1, so `LogReceiver` bound to
+  `Log(1)`. Only non-collection scalar constants collapse;
+  `Enumerable.Repeat(int.MaxValue, n)` still sizes by `n` while a
+  collection field keeps its dimension.
+- The read-only list/dictionary interface indexers
+  (`IReadOnlyList`, `IList`, `IReadOnlyDictionary`, `IDictionary`)
+  the compound-assignment fix exposed are now cataloged.
+
+### Added
+
+- `samples/roslyn/SessionLedger.cs` adversarial fixture and a
+  `DictionaryIndexers_ResolveWithoutOpaqueCall` regression test.
+
 ## [0.1.4] — 2026-08-15
 
 Closes the remaining places 0.1.3 still invented a tight bound, and
