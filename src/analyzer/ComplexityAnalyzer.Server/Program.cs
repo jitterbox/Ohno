@@ -12,7 +12,7 @@ public static class Program
     {
         if (args.Contains("--version"))
         {
-            Console.Error.WriteLine("Ohno.ComplexityAnalyzer 0.1.3");
+            Console.Error.WriteLine("Ohno.ComplexityAnalyzer 0.1.4");
             return 0;
         }
 
