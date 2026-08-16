@@ -1,5 +1,6 @@
 import type { AnalyzeDocumentRequest } from '../analyzer';
 import type { AnalyzeResponse } from '../types';
+import { analyzeDocument } from './analyze';
 
 export type WorkerMethod = 'ping' | 'analyze';
 
@@ -19,26 +20,19 @@ export interface PingResult {
   ok: true;
 }
 
-export function emptyAnalyze(
-  request: AnalyzeDocumentRequest,
-): AnalyzeResponse {
-  return {
-    uri: request.uri,
-    version: request.version,
-    functions: [],
-    warnings: [],
-  };
-}
-
 export function dispatch(request: WorkerRequest): WorkerResponse {
   if (request.method === 'ping') {
     return { id: request.id, result: { ok: true } };
   }
   if (request.method === 'analyze' && request.params) {
-    return {
-      id: request.id,
-      result: emptyAnalyze(request.params),
-    };
+    try {
+      return {
+        id: request.id,
+        result: analyzeDocument(request.params),
+      };
+    } catch (error) {
+      return { id: request.id, error: String(error) };
+    }
   }
   return {
     id: request.id,

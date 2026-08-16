@@ -10,7 +10,7 @@ const config = {
   },
   bundle: true,
   outdir: 'dist',
-  external: ['vscode'],
+  external: ['vscode', 'typescript'],
   format: 'cjs',
   platform: 'node',
   target: 'node20',
