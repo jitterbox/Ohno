@@ -451,7 +451,10 @@ that window/Fibonacci are Medium with a matching reason.
 - Selection analysis is a second `ohno/analyze` with `selection`,
   debounced (≤ 200 ms), ticketed so a stale response cannot land,
   and stored separately from document functions.
-- Inline annotations are gated by `ohno.annotations.showInline`.
+- Editor annotations are gated by `ohno.annotations.mode`
+  (`inline`, `codelens`, or `off`). The old
+  `ohno.annotations.showInline` boolean is still read: `false` with
+  the default `inline` mode is treated as `off`.
 - Accessors, indexers, and operators are **analyzed** like any other
   member and always appear in the panel; `ohno.annotations.accessors`
   controls only whether they get an inline decoration, defaulting to

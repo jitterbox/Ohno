@@ -9,6 +9,15 @@ history after the fact — this file did not exist while those releases
 were made, so they summarize what shipped rather than what was written
 down at the time.
 
+## [Unreleased]
+
+### Changed
+
+- `ohno.annotations.mode` is the only editor-display switch
+  (`inline`, `codelens`, `off`). `ohno.annotations.showInline` is
+  deprecated; a leftover `false` with the default `inline` mode is
+  treated as `off`.
+
 ## [0.1.5] — 2026-08-15
 
 Dictionaries and read-only indexers now resolve to real costs instead

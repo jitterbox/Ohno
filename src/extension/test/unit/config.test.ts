@@ -1,4 +1,5 @@
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
+import * as vscode from 'vscode';
 import { languageEnabled, readConfig, type OhnoConfig } from '../../src/config';
 import {
   DEFAULT_LANGUAGE_ID,
@@ -11,7 +12,6 @@ const config = (languages: Record<string, boolean>): OhnoConfig => ({
   languages,
   tier: 'fast',
   mode: 'inline',
-  showInline: true,
   nestingDepth: 2,
   showSpace: true,
   showConfidence: true,
@@ -23,8 +23,31 @@ const config = (languages: Record<string, boolean>): OhnoConfig => ({
 });
 
 describe('readConfig', () => {
-  it('enables inline annotations by default', () => {
-    expect(readConfig().showInline).toBe(true);
+  it('defaults annotation mode to inline', () => {
+    expect(readConfig().mode).toBe('inline');
+  });
+
+  it('treats leftover showInline false as mode off', () => {
+    vi.spyOn(vscode.workspace, 'getConfiguration').mockReturnValue({
+      get: (key: string, fallback: unknown) =>
+        key === 'annotations.showInline' ? false : fallback,
+      update: async () => undefined,
+    } as vscode.WorkspaceConfiguration);
+    expect(readConfig().mode).toBe('off');
+    vi.restoreAllMocks();
+  });
+
+  it('does not override an explicit codelens mode', () => {
+    vi.spyOn(vscode.workspace, 'getConfiguration').mockReturnValue({
+      get: (key: string, fallback: unknown) => {
+        if (key === 'annotations.mode') return 'codelens';
+        if (key === 'annotations.showInline') return false;
+        return fallback;
+      },
+      update: async () => undefined,
+    } as vscode.WorkspaceConfiguration);
+    expect(readConfig().mode).toBe('codelens');
+    vi.restoreAllMocks();
   });
 });
 

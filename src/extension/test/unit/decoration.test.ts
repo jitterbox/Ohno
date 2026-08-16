@@ -39,7 +39,6 @@ const config: OhnoConfig = {
   languages: { csharp: true },
   tier: 'fast',
   mode: 'inline',
-  showInline: true,
   nestingDepth: 2,
   showSpace: true,
   showConfidence: true,

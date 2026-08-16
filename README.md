@@ -99,8 +99,7 @@ TypeScript is not selectable.
 | `ohno.enabled` | `true` | Master switch |
 | `ohno.languages.csharp` | `true` | Analyze C# |
 | `ohno.analysis.tier` | `fast` | Reserved; deep analysis is on demand (`Ohno: Run Deep Analysis`) |
-| `ohno.annotations.showInline` | `true` | End-of-line annotations |
-| `ohno.annotations.mode` | `inline` | `inline`, `codelens`, or `off` |
+| `ohno.annotations.mode` | `inline` | Editor annotations: `inline`, `codelens`, or `off` |
 | `ohno.annotations.nestingDepth` | `2` | Nested subtotal depth |
 | `ohno.annotations.showSpace` | `true` | Include auxiliary space |
 | `ohno.annotations.showConfidence` | `true` | Include confidence in the annotation |
