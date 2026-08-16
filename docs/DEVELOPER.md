@@ -526,6 +526,11 @@ emit `ComplexityResult`, and keep the Core algebra unchanged. Update
 `Contracts.cs`) only if the wire shape changes. Algebra goldens live
 in `src/shared/algebra-vectors.json`.
 
+TypeScript / JavaScript is the second frontend: a Node worker under
+`src/extension/src/analysis/typescript/`. It is opt-in. Do not start
+the Roslyn server for a TS-only document. Ported Core lives in
+`engine/` and must keep `algebra-vectors.json` green.
+
 ## 7. Limits (do not paper over these)
 
 Ohno **will miss** equivalent algorithms that use:

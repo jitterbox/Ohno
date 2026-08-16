@@ -19,8 +19,8 @@ still `typescript`.
 
 ## Why this is not “turn on the stub”
 
-`src/extension/src/analysis/typescriptAnalyzer.ts` already exists
-(~380 lines) and has two Vitest cases. It must **not** be registered.
+`src/extension/src/analysis/typescriptAnalyzer.ts` was the honesty-
+violating stub. It has been deleted; the worker facade replaced it.
 
 It violates the honesty rule the C# engine spent 0.1.3–0.1.6 closing:
 

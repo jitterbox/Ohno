@@ -14,7 +14,9 @@ constant work is still O(1). That is the opposite of cyclomatic complexity
 which counts independent paths and says nothing about input size.
 
 C# is analyzed by a bundled [Roslyn](https://learn.microsoft.com/dotnet/csharp/roslyn-sdk/)
-server. TypeScript is not a selectable language in this release.
+server. TypeScript and JavaScript are opt-in (`ohno.languages.typescript`
+/ `javascript`) and run in a Node worker — a TS-only workspace does
+not start the Roslyn process.
 
 ## What you see
 
@@ -91,8 +93,11 @@ still applies this same catalog.
 | Language | Default | Engine |
 |---|---|---|
 | C# | On | Roslyn `IOperation` + BCL/LINQ catalog |
+| TypeScript / TSX | Off | `ts.Program` + `TypeChecker` in a worker |
+| JavaScript / JSX | Off | Same worker; untyped receivers are `C(name)` |
 
-TypeScript is not selectable.
+The TS/JS catalog is not versioned by `target`, same rule as the BCL
+table. Untyped `arr.sort()` is `C(sort)`, not invented O(1).
 
 ## Commands
 
@@ -110,6 +115,10 @@ TypeScript is not selectable.
 |---|---|---|
 | `ohno.enabled` | `true` | Master switch |
 | `ohno.languages.csharp` | `true` | Analyze C# |
+| `ohno.languages.typescript` | `false` | Analyze `.ts` (opt-in) |
+| `ohno.languages.javascript` | `false` | Analyze `.js` (opt-in) |
+| `ohno.languages.typescriptreact` | `false` | Analyze `.tsx` (opt-in) |
+| `ohno.languages.javascriptreact` | `false` | Analyze `.jsx` (opt-in) |
 | `ohno.analysis.tier` | `fast` | Reserved; deep analysis is on demand (`Ohno: Run Deep Analysis`) |
 | `ohno.annotations.mode` | `inline` | Editor annotations: `inline`, `codelens`, or `off` |
 | `ohno.annotations.nestingDepth` | `2` | Nested subtotal depth |
@@ -167,7 +176,8 @@ provider runs the tree; Ohno does not invent a SQL bound.
 ```
 VS Code / Cursor extension (TypeScript)
   ├─ Analyzer registry (per language)
-  └─ C# adapter ── JSON-RPC stdio ── ComplexityAnalyzer.Server (Roslyn)
+  ├─ C# adapter ── JSON-RPC stdio ── ComplexityAnalyzer.Server (Roslyn)
+  └─ TS/JS adapter ── worker_threads ── ts.Program + TypeChecker
 
 ComplexityAnalyzer.Server
   ├─ Fast: project SemanticModel when ready, else ad-hoc compilation
@@ -266,7 +276,7 @@ instead of a silent O(1).
 
 ## Status
 
-v0.1.6. C# is the only selectable language.
+v0.1.6. C# is on by default; TypeScript and JavaScript are opt-in.
 Estimates are for local computational work as written; they are not a
 substitute for measurement on production data.
 

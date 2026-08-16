@@ -9,6 +9,25 @@ history after the fact — this file did not exist while those releases
 were made, so they summarize what shipped rather than what was written
 down at the time.
 
+## [Unreleased]
+
+Opt-in TypeScript and JavaScript analysis. C# bounds are unchanged.
+
+### Added
+
+- `ohno.languages.typescript` / `javascript` / `typescriptreact` /
+  `javascriptreact` (all default off). A Node worker uses
+  `ts.createProgram` and the same `AnalyzeResponse` as C#.
+- Shared contracts in `src/shared/`: protocol schema assertions,
+  BCL catalog snapshot, and algebra golden vectors.
+- Samples under `samples/typescript` and `samples/javascript`.
+
+### Changed
+
+- The unreachable string-algebra TypeScript stub is gone. Unknown
+  receivers are `C(name)` at Low; `for await` is Unknown; cataloged
+  `Array.sort` / `toSorted` is O(n log n).
+
 ## [0.1.6] — 2026-08-15
 
 Settings cleanup and a larger adversarial fixture. Analyzer bounds
