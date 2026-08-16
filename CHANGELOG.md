@@ -21,6 +21,9 @@ Opt-in TypeScript and JavaScript analysis. C# bounds are unchanged.
 - Shared contracts in `src/shared/`: protocol schema assertions,
   BCL catalog snapshot, and algebra golden vectors.
 - Samples under `samples/typescript` and `samples/javascript`.
+- TypeScript Phase 4 patterns: string concat, trivial vs
+  backtracking regex, visited/unbounded worklists, sliding-window
+  heap cap, linear and branching recurrence, approaches.
 
 ### Changed
 

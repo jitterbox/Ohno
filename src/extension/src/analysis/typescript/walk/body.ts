@@ -20,6 +20,11 @@ import {
   type LineSpan,
 } from '../engine';
 import { rangeOf } from './functions';
+import { queueFromCondition } from '../patterns/facts';
+import {
+  callIsTrivialRegex,
+  isRegexCall,
+} from '../patterns/regex';
 import {
   createSizeState,
   dimensionFor,
@@ -28,15 +33,15 @@ import {
   sizeOfReceiver,
   sizedTypeName,
   typeNameOf,
-  type SizeState,
 } from './sizes';
 
 export interface WalkContext {
   checker: ts.TypeChecker;
   source: ts.SourceFile;
-  sizes: SizeState;
+  sizes: ReturnType<typeof createSizeState>;
   visited: Set<ts.Node>;
   reasons: string[];
+  worklists: Map<string, ComplexityExpression>;
 }
 
 export function createContext(
@@ -49,6 +54,7 @@ export function createContext(
     sizes: createSizeState(checker),
     visited: new Set(),
     reasons: [],
+    worklists: new Map(),
   };
 }
 
@@ -193,12 +199,23 @@ function walkCall(
   span: LineSpan,
 ): ComposedCost {
   const name = callName(node);
-  if (name === 'eval' || name === 'Function') {
-    return ofCost(call(name), One, 'call', name, span, 'unknown');
-  }
   const receiver = ts.isPropertyAccessExpression(node.expression)
     ? node.expression.expression
     : undefined;
+  if (isRegexCall(name) && callIsTrivialRegex(node)) {
+    const subject = name === 'test' || name === 'exec'
+      ? node.arguments[0]
+      : receiver;
+    if (subject) {
+      const size = sizeOfReceiver(
+        ctx.sizes, subject as ts.LeftHandSideExpression,
+      );
+      return ofCost(size, One, 'call', name, span);
+    }
+  }
+  if (name === 'eval' || name === 'Function') {
+    return ofCost(call(name), One, 'call', name, span, 'unknown');
+  }
   const typeName = receiverTypeName(ctx, node);
   const arity = node.arguments.length;
   const entry = typeName
@@ -336,8 +353,11 @@ function loopBound(
     const length = lengthBound(ctx, node.condition);
     if (length) return length;
   }
-  if ((ts.isWhileStatement(node) || ts.isDoStatement(node))
-    && ts.isPrefixUnaryExpression(node.expression) === false) {
+  if (ts.isWhileStatement(node) || ts.isDoStatement(node)) {
+    const queue = queueFromCondition(node.expression);
+    if (queue && ctx.worklists.has(queue)) {
+      return ctx.worklists.get(queue)!;
+    }
     const length = lengthBound(ctx, node.expression);
     if (length) return length;
   }
@@ -349,9 +369,10 @@ function lengthBound(
   ctx: WalkContext,
   condition: ts.Expression,
 ): ComplexityExpression | undefined {
-  if (!ts.isBinaryExpression(condition)) return undefined;
-  const access = lengthAccess(condition.right)
-    ?? lengthAccess(condition.left);
+  const access = lengthAccess(condition)
+    ?? (ts.isBinaryExpression(condition)
+      ? lengthAccess(condition.right) ?? lengthAccess(condition.left)
+      : undefined);
   if (!access) return undefined;
   return sizeOfReceiver(ctx.sizes, access.expression);
 }

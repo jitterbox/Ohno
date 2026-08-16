@@ -7,10 +7,11 @@ const DimNames = ['n', 'm', 'k', 'p', 'q'];
 export interface SizeState {
   checker: ts.TypeChecker;
   dims: { variable: string; meaning: string }[];
+  heaps: Map<string, ComplexityExpression>;
 }
 
 export function createSizeState(checker: ts.TypeChecker): SizeState {
-  return { checker, dims: [] };
+  return { checker, dims: [], heaps: new Map() };
 }
 
 export function sizedTypeName(type: ts.Type): string | undefined {
@@ -70,6 +71,9 @@ export function sizeOfReceiver(
   state: SizeState,
   node: ts.LeftHandSideExpression,
 ): ComplexityExpression {
+  if (ts.isIdentifier(node) && state.heaps.has(node.text)) {
+    return state.heaps.get(node.text)!;
+  }
   const type = state.checker.getTypeAtLocation(node);
   if (isOpaqueType(type)) return call('iterate');
   if (!sizedTypeName(type) && !looksLikeArrayLiteral(node)) {

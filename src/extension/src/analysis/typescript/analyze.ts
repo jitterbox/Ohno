@@ -5,6 +5,7 @@ import type {
   FunctionComplexity,
   FunctionKind,
   LineRange,
+  RecognizedPattern as ProtocolPattern,
 } from '../types';
 import {
   format,
@@ -13,7 +14,14 @@ import {
   prune,
   simplify,
   type ComposedCost,
+  type RecognizedPattern,
 } from './engine';
+import { applySpace, applyTime } from './patterns/apply';
+import { summarize } from './patterns/approaches';
+import { detectBounds } from './patterns/bounds';
+import { recognize } from './patterns/recognize';
+import { tryRecurrence } from './patterns/recurrence';
+import { refine } from './patterns/refine';
 import { getProgram } from './program';
 import { createContext, walkList, walkNode } from './walk/body';
 import {
@@ -46,7 +54,7 @@ export function analyzeDocument(
     uri: request.uri,
     version: request.version,
     functions: collected.map((fn) =>
-      analyzeOne(fn, checker, loaded.source, request.tier)),
+      analyzeOne(fn, checker, loaded.source, request.tier, false)),
     warnings,
   };
 }
@@ -56,12 +64,30 @@ function analyzeOne(
   checker: ts.TypeChecker,
   source: ts.SourceFile,
   tier: AnalysisTier,
+  selection: boolean,
 ): FunctionComplexity {
   const ctx = createContext(checker, source);
-  const cost = fn.body
-    ? walkNode(ctx, fn.body)
-    : walkNode(ctx, fn.node);
-  return toDto(fn.name, fn.kind, fn.range, fn.signatureRange, cost, ctx, tier);
+  const root = fn.body ?? fn.node;
+  const bounds = detectBounds(root, ctx.sizes);
+  ctx.sizes.heaps = bounds.heaps;
+  ctx.worklists = bounds.worklists;
+  ctx.reasons.push(...bounds.reasons);
+  const raw = recognize(fn.node, source, checker);
+  const rec = tryRecurrence(fn.name, fn.body);
+  const walked = rec?.cost ?? walkNode(ctx, root);
+  const patterns = refine(raw, walked.time, rec?.id);
+  return toDto({
+    name: fn.name,
+    kind: fn.kind,
+    range: fn.range,
+    signatureRange: fn.signatureRange,
+    cost: walked,
+    patterns,
+    reasons: ctx.reasons,
+    dims: ctx.sizes.dims,
+    tier,
+    selection,
+  });
 }
 
 function analyzeSelection(
@@ -74,19 +100,26 @@ function analyzeSelection(
   const enclosing = collected.find((fn) => overlaps(fn.range, selection));
   const ctx = createContext(checker, source);
   const nodes = overlappingStatements(source, selection);
+  const root = enclosing?.body ?? source;
+  const bounds = detectBounds(root, ctx.sizes);
+  ctx.sizes.heaps = bounds.heaps;
+  ctx.worklists = bounds.worklists;
+  ctx.reasons.push(...bounds.reasons);
   const cost = walkList(ctx, nodes, selection);
-  const name = enclosing
-    ? `${enclosing.name} (selection)`
-    : 'selection';
-  return toDto(
-    name,
-    enclosing?.kind ?? 'method',
-    selection,
-    selection,
+  const raw = recognize(root, source, checker);
+  const patterns = refine(raw, cost.time);
+  return toDto({
+    name: enclosing ? `${enclosing.name} (selection)` : 'selection',
+    kind: enclosing?.kind ?? 'method',
+    range: selection,
+    signatureRange: selection,
     cost,
-    ctx,
-    request.tier,
-  );
+    patterns,
+    reasons: ctx.reasons,
+    dims: ctx.sizes.dims,
+    tier: request.tier,
+    selection: true,
+  });
 }
 
 function overlappingStatements(
@@ -108,31 +141,37 @@ function overlappingStatements(
   return nodes;
 }
 
-function toDto(
-  name: string,
-  kind: FunctionKind,
-  range: LineRange,
-  signatureRange: LineRange,
-  cost: ComposedCost,
-  ctx: ReturnType<typeof createContext>,
-  tier: AnalysisTier,
-): FunctionComplexity {
-  const time = simplify(cost.time);
-  const space = simplify(cost.space);
-  const confidence = cost.confidence === 'high' && ctx.reasons.length > 0
-    ? 'medium'
-    : cost.confidence;
-  const evidence = prune(cost.evidence);
+interface DtoInput {
+  name: string;
+  kind: FunctionKind;
+  range: LineRange;
+  signatureRange: LineRange;
+  cost: ComposedCost;
+  patterns: RecognizedPattern[];
+  reasons: string[];
+  dims: { variable: string; meaning: string }[];
+  tier: AnalysisTier;
+  selection: boolean;
+}
+
+function toDto(input: DtoInput): FunctionComplexity {
+  const time = applyTime(simplify(input.cost.time), input.patterns);
+  const space = applySpace(simplify(input.cost.space), input.patterns);
+  const evidence = prune(input.cost.evidence);
+  const confidence = confidenceOf(time, input);
+  const { approaches, hint } = summarize(
+    input.patterns, evidence, time, input.selection,
+  );
   return {
-    id: `${name}:${range.startLine}`,
-    name,
-    kind,
-    range,
-    signatureRange,
+    id: `${input.name}:${input.range.startLine}`,
+    name: input.name,
+    kind: input.kind,
+    range: input.range,
+    signatureRange: input.signatureRange,
     time: formatBigO(time),
     space: formatBigO(space),
     confidence,
-    dimensions: ctx.sizes.dims,
+    dimensions: input.dims,
     evidence: {
       kind: evidence.kind,
       label: evidence.label,
@@ -146,20 +185,36 @@ function toDto(
         children: [],
       })),
     },
-    warnings: [...cost.warnings],
+    warnings: [...input.cost.warnings],
     boundingSuggestions: [],
-    explanation: formatExplanation(time, []),
-    patterns: [],
-    confidenceReasons: ctx.reasons,
-    approaches: [{
-      id: 'dominant',
-      name: 'Structural',
-      summary: formatBigO(time),
-      role: 'dominant',
-      timeHint: formatBigO(time),
-    }],
-    selectionHint: '',
-    tier,
+    explanation: formatExplanation(time, input.patterns),
+    patterns: input.patterns.map(toProtocolPattern),
+    confidenceReasons: input.reasons,
+    approaches,
+    selectionHint: hint,
+    tier: input.tier,
+  };
+}
+
+function confidenceOf(
+  time: ReturnType<typeof simplify>,
+  input: DtoInput,
+): FunctionComplexity['confidence'] {
+  if (time.kind === 'unknown') return 'unknown';
+  if (input.patterns.some((p) => p.effect === 'unknown')) return 'low';
+  if (input.cost.confidence === 'high' && input.reasons.length > 0) {
+    return 'medium';
+  }
+  return input.cost.confidence;
+}
+
+function toProtocolPattern(item: RecognizedPattern): ProtocolPattern {
+  return {
+    id: item.id,
+    label: item.label,
+    reason: item.reason,
+    effect: item.effect,
+    range: item.range,
   };
 }
 
