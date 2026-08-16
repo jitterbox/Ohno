@@ -213,14 +213,14 @@ dotnet publish src/analyzer/ComplexityAnalyzer.Server \
   -c Release -r linux-x64 --self-contained \
   -o src/extension/server
 cd src/extension && npm install && npx @vscode/vsce package --target linux-x64
-code --install-extension ohno-linux-x64-0.1.6.vsix --force
+code --install-extension ohno-linux-x64-0.1.7.vsix --force
 
 # Windows (from PowerShell or cmd)
 dotnet publish src/analyzer/ComplexityAnalyzer.Server `
   -c Release -r win-x64 --self-contained `
   -o src/extension/server
 cd src/extension && npm install && npx @vscode/vsce package --target win-x64
-code --install-extension ohno-win-x64-0.1.6.vsix --force
+code --install-extension ohno-win-x64-0.1.7.vsix --force
 ```
 
 Use `osx-arm64` the same way. Reload the window after install. The
@@ -283,7 +283,7 @@ instead of a silent O(1).
 
 ## Status
 
-v0.1.6. C#, TypeScript, and JavaScript are on by default. Untyped
+v0.1.7. C#, TypeScript, and JavaScript are on by default. Untyped
 JS is honest and looser than typed TS.
 Estimates are for local computational work as written; they are not a
 substitute for measurement on production data.

@@ -11,6 +11,8 @@ down at the time.
 
 ## [Unreleased]
 
+## [0.1.7] — 2026-08-16
+
 TypeScript and JavaScript analysis is on by default. C# bounds are
 unchanged. Typed TS follows the same honesty rule as C#; untyped JS
 stays `C(name)` / Unknown.
@@ -300,7 +302,8 @@ guessing in the places it used to.
   on-demand deep analysis.
 - A GitHub Actions workflow packaging per-platform VSIX artifacts.
 
-[Unreleased]: https://github.com/jitterbox/Ohno/compare/v0.1.6...HEAD
+[Unreleased]: https://github.com/jitterbox/Ohno/compare/v0.1.7...HEAD
+[0.1.7]: https://github.com/jitterbox/Ohno/releases/tag/v0.1.7
 [0.1.6]: https://github.com/jitterbox/Ohno/releases/tag/v0.1.6
 [0.1.5]: https://github.com/jitterbox/Ohno/releases/tag/v0.1.5
 [0.1.4]: https://github.com/jitterbox/Ohno/releases/tag/v0.1.4
