@@ -16,9 +16,9 @@ namespace Ohno.Samples.Roslyn;
 
 /// <summary>
 /// A production-shaped type that is hard for Ohno on purpose.
-/// Open this file in VS Code with 0.1.5 installed and read the
+/// Open this file in VS Code with 0.1.6 installed and read the
 /// Complexity view against the comments. The comment above each
-/// member records what 0.1.5 actually reports and whether that is
+/// member records what 0.1.6 actually reports and whether that is
 /// the honest bound. Members that are still wrong or conservatively
 /// opaque say so explicitly.
 /// </summary>

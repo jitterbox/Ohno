@@ -9,7 +9,10 @@ history after the fact — this file did not exist while those releases
 were made, so they summarize what shipped rather than what was written
 down at the time.
 
-## [Unreleased]
+## [0.1.6] — 2026-08-15
+
+Settings cleanup and a larger adversarial fixture. Analyzer bounds
+are unchanged from 0.1.5.
 
 ### Changed
 
@@ -17,6 +20,12 @@ down at the time.
   (`inline`, `codelens`, `off`). `ohno.annotations.showInline` is
   deprecated; a leftover `false` with the default `inline` mode is
   treated as `off`.
+
+### Added
+
+- `samples/roslyn/SessionLedger.cs` now has 55 adversarial members
+  with comments that match what 0.1.5/0.1.6 actually report,
+  including documented undercounts (`SumRange`, `Drain`, `GotoSum`).
 
 ### Documentation
 
@@ -238,7 +247,8 @@ guessing in the places it used to.
   on-demand deep analysis.
 - A GitHub Actions workflow packaging per-platform VSIX artifacts.
 
-[Unreleased]: https://github.com/jitterbox/Ohno/compare/v0.1.5...HEAD
+[Unreleased]: https://github.com/jitterbox/Ohno/compare/v0.1.6...HEAD
+[0.1.6]: https://github.com/jitterbox/Ohno/releases/tag/v0.1.6
 [0.1.5]: https://github.com/jitterbox/Ohno/releases/tag/v0.1.5
 [0.1.4]: https://github.com/jitterbox/Ohno/releases/tag/v0.1.4
 [0.1.3]: https://github.com/jitterbox/Ohno/releases/tag/v0.1.3
