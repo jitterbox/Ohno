@@ -1,6 +1,7 @@
 /**
- * Built-in languages shipped with Ohno. C# is the only selectable
- * language in this release.
+ * Built-in languages shipped with Ohno. C# is on by default.
+ * TypeScript and JavaScript are opt-in until their catalog and
+ * honesty match C#.
  *
  * Do not treat this list as the long-term analyzer registry. A public
  * analyzer manifest schema (and optional file upload) will later let
@@ -18,6 +19,18 @@ export const DEFAULT_LANGUAGE_ID = 'csharp';
 
 export const BUILTIN_LANGUAGES: readonly BuiltinLanguage[] = [
   { id: 'csharp', title: 'C#', enabledByDefault: true },
+  { id: 'typescript', title: 'TypeScript', enabledByDefault: false },
+  { id: 'javascript', title: 'JavaScript', enabledByDefault: false },
+  {
+    id: 'typescriptreact',
+    title: 'TypeScript React',
+    enabledByDefault: false,
+  },
+  {
+    id: 'javascriptreact',
+    title: 'JavaScript React',
+    enabledByDefault: false,
+  },
 ];
 
 export function builtinLanguageIds(): string[] {
@@ -29,6 +42,12 @@ export function documentSelectors(): { language: string }[] {
 }
 
 export function defaultLanguageEnabled(languageId: string): boolean {
-  const language = BUILTIN_LANGUAGES.find((item) => item.id === languageId);
+  const language = BUILTIN_LANGUAGES.find(
+    (item) => item.id === languageId,
+  );
   return language?.enabledByDefault ?? false;
+}
+
+export function isCsharpLanguage(languageId: string): boolean {
+  return languageId === 'csharp';
 }

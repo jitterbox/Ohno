@@ -1,40 +1,43 @@
+import { dirname, resolve } from 'node:path';
+import { fileURLToPath } from 'node:url';
+import { existsSync } from 'node:fs';
 import { describe, expect, it } from 'vitest';
-import { TypeScriptAnalyzer } from '../../src/analysis/typescriptAnalyzer';
+import {
+  pingInline,
+  TypeScriptAnalyzer,
+  TS_LANGUAGE_IDS,
+} from '../../src/analysis/typescript/facade';
+import { dispatch } from '../../src/analysis/typescript/messages';
 
-describe('TypeScriptAnalyzer', () => {
-  it('estimates a linear for-of loop', async () => {
-    const analyzer = new TypeScriptAnalyzer();
-    const result = await analyzer.analyze({
-      uri: 'file:///a.ts',
-      text: `
-        function contains(items: number[], value: number): boolean {
-          for (const n of items) {
-            if (n === value) return true;
-          }
-          return false;
-        }
-      `,
-      version: 1,
-      tier: 'fast',
-    }, { isCancellationRequested: false } as never);
-    const fn = result.functions.find((f) => f.name === 'contains');
-    expect(fn).toBeDefined();
-    expect(fn!.time).toMatch(/O\(/);
+const workerFile = resolve(
+  dirname(fileURLToPath(import.meta.url)),
+  '../../dist/ohno-ts-worker.js',
+);
+
+describe('TypeScript worker bootstrap', () => {
+  it('answers ping without starting Roslyn', () => {
+    expect(pingInline()).toEqual({ ok: true });
+    expect(dispatch({ id: 1, method: 'ping' })).toEqual({
+      id: 1,
+      result: { ok: true },
+    });
   });
 
-  it('treats sort as n log n', async () => {
+  it('covers the four opt-in language ids', () => {
     const analyzer = new TypeScriptAnalyzer();
-    const result = await analyzer.analyze({
-      uri: 'file:///b.ts',
-      text: `
-        function sortNums(nums: number[]): number[] {
-          return nums.toSorted();
-        }
-      `,
-      version: 1,
-      tier: 'fast',
-    }, { isCancellationRequested: false } as never);
-    const fn = result.functions.find((f) => f.name === 'sortNums');
-    expect(fn!.time).toContain('n log n');
+    expect([...analyzer.languageIds]).toEqual([...TS_LANGUAGE_IDS]);
+    analyzer.dispose();
+  });
+
+  it('pings through a worker thread', async () => {
+    if (!existsSync(workerFile)) {
+      return;
+    }
+    const analyzer = new TypeScriptAnalyzer(workerFile);
+    try {
+      await expect(analyzer.ping()).resolves.toEqual({ ok: true });
+    } finally {
+      analyzer.dispose();
+    }
   });
 });

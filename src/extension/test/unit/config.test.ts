@@ -58,6 +58,10 @@ describe('built-in languages', () => {
     expect(defaultLanguageEnabled('typescript')).toBe(false);
     expect(documentSelectors()).toEqual([
       { language: 'csharp' },
+      { language: 'typescript' },
+      { language: 'javascript' },
+      { language: 'typescriptreact' },
+      { language: 'javascriptreact' },
     ]);
   });
 });
@@ -78,8 +82,14 @@ describe('languageEnabled', () => {
     expect(languageEnabled('python', config({ csharp: true }))).toBe(false);
   });
 
-  it('ignores leftover TypeScript flags', () => {
+  it('honors an explicit TypeScript opt-in', () => {
     const flags = config({ csharp: true, typescript: true });
+    expect(languageEnabled('typescript', flags)).toBe(true);
+  });
+
+  it('keeps TypeScript off unless the user opts in', () => {
+    const flags = config({ csharp: true });
     expect(languageEnabled('typescript', flags)).toBe(false);
+    expect(languageEnabled('javascript', flags)).toBe(false);
   });
 });

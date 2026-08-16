@@ -3,8 +3,10 @@ import { readConfig } from './config';
 import { documentSelectors } from './analysis/languages';
 import { AnalyzerRegistry } from './analysis/registry';
 import { CSharpAnalyzer } from './analysis/csharpAnalyzer';
+import { isCsharpLanguage } from './analysis/languages';
 import { AnalyzerRpcClient, resolveServerPath } from './analysis/rpcClient';
 import { SolutionBinder } from './analysis/solutionContext';
+import { TypeScriptAnalyzer } from './analysis/typescript/facade';
 import { AnnotationController } from './ui/annotationController';
 // import { ComplexityHoverProvider } from './ui/hoverProvider';
 import { ComplexityCodeLensProvider } from './ui/codeLensProvider';
@@ -23,6 +25,7 @@ export function activate(context: vscode.ExtensionContext): void {
   const client = new AnalyzerRpcClient(serverPath, (m) => output.appendLine(m));
   const binder = new SolutionBinder((p) => client.setSolution(p));
   registry.register(new CSharpAnalyzer(client, binder));
+  registry.register(new TypeScriptAnalyzer());
 
   const annotations = new AnnotationController(
     registry,
@@ -121,6 +124,7 @@ function bindSolution(
   const bindActive = (): void => {
     const editor = vscode.window.activeTextEditor;
     if (cancelled || !editor) return;
+    if (!isCsharpLanguage(editor.document.languageId)) return;
     void binder.bindFile(editor.document.uri.toString())
       .catch((error) => {
         output.appendLine(`setSolution failed: ${String(error)}`);

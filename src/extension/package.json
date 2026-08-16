@@ -27,6 +27,10 @@
   ],
   "activationEvents": [
     "onLanguage:csharp",
+    "onLanguage:typescript",
+    "onLanguage:javascript",
+    "onLanguage:typescriptreact",
+    "onLanguage:javascriptreact",
     "onView:ohno.summary",
     "onView:ohno.derivation"
   ],
@@ -142,7 +146,31 @@
             "type": "boolean",
             "default": true,
             "order": 1,
-            "markdownDescription": "Analyze **C#** files. C# is the only built-in language."
+            "markdownDescription": "Analyze **C#** files."
+          },
+          "ohno.languages.typescript": {
+            "type": "boolean",
+            "default": false,
+            "order": 2,
+            "markdownDescription": "Analyze **TypeScript** (`.ts`) files. Off until you opt in."
+          },
+          "ohno.languages.javascript": {
+            "type": "boolean",
+            "default": false,
+            "order": 3,
+            "markdownDescription": "Analyze **JavaScript** (`.js`) files. Off until you opt in."
+          },
+          "ohno.languages.typescriptreact": {
+            "type": "boolean",
+            "default": false,
+            "order": 4,
+            "markdownDescription": "Analyze **TSX** files. Off until you opt in."
+          },
+          "ohno.languages.javascriptreact": {
+            "type": "boolean",
+            "default": false,
+            "order": 5,
+            "markdownDescription": "Analyze **JSX** files. Off until you opt in."
           }
         }
       }
