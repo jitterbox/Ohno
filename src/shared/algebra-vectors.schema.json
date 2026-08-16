@@ -1,0 +1,115 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://ohno.dev/algebra-vectors.schema.json",
+  "title": "Ohno algebra golden vectors",
+  "description": "Expression trees and their Format / FormatBigO strings. C# Core is the spec; a TS port must match.",
+  "type": "object",
+  "required": ["version", "vectors"],
+  "additionalProperties": false,
+  "properties": {
+    "version": { "type": "integer", "const": 1 },
+    "vectors": {
+      "type": "array",
+      "minItems": 1,
+      "items": { "$ref": "#/$defs/vector" }
+    }
+  },
+  "$defs": {
+    "expr": {
+      "oneOf": [
+        {
+          "type": "object",
+          "required": ["op", "value"],
+          "additionalProperties": false,
+          "properties": {
+            "op": { "const": "const" },
+            "value": { "type": "integer" }
+          }
+        },
+        {
+          "type": "object",
+          "required": ["op", "name"],
+          "additionalProperties": false,
+          "properties": {
+            "op": { "const": "var" },
+            "name": { "type": "string", "minLength": 1 }
+          }
+        },
+        {
+          "type": "object",
+          "required": ["op", "inner"],
+          "additionalProperties": false,
+          "properties": {
+            "op": { "enum": ["log", "factorial"] },
+            "inner": { "$ref": "#/$defs/expr" }
+          }
+        },
+        {
+          "type": "object",
+          "required": ["op", "base", "exp"],
+          "additionalProperties": false,
+          "properties": {
+            "op": { "const": "pow" },
+            "base": { "$ref": "#/$defs/expr" },
+            "exp": { "$ref": "#/$defs/expr" }
+          }
+        },
+        {
+          "type": "object",
+          "required": ["op", "n", "k"],
+          "additionalProperties": false,
+          "properties": {
+            "op": { "const": "binomial" },
+            "n": { "$ref": "#/$defs/expr" },
+            "k": { "$ref": "#/$defs/expr" }
+          }
+        },
+        {
+          "type": "object",
+          "required": ["op", "args"],
+          "additionalProperties": false,
+          "properties": {
+            "op": { "enum": ["add", "mul"] },
+            "args": {
+              "type": "array",
+              "minItems": 2,
+              "items": { "$ref": "#/$defs/expr" }
+            }
+          }
+        },
+        {
+          "type": "object",
+          "required": ["op", "name"],
+          "additionalProperties": false,
+          "properties": {
+            "op": { "const": "call" },
+            "name": { "type": "string", "minLength": 1 }
+          }
+        },
+        {
+          "type": "object",
+          "required": ["op", "reason"],
+          "additionalProperties": false,
+          "properties": {
+            "op": { "const": "unknown" },
+            "reason": { "type": "string" }
+          }
+        }
+      ]
+    },
+    "vector": {
+      "type": "object",
+      "required": ["id", "expr", "simplified", "bigO"],
+      "additionalProperties": false,
+      "properties": {
+        "id": { "type": "string", "minLength": 1 },
+        "expr": { "$ref": "#/$defs/expr" },
+        "simplified": { "type": "string", "minLength": 1 },
+        "bigO": {
+          "type": "string",
+          "pattern": "^O\\("
+        }
+      }
+    }
+  }
+}

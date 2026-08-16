@@ -178,10 +178,12 @@ ComplexityAnalyzer.CSharp   IOperation walk, patterns, recurrences
 ComplexityAnalyzer.DotNet   BCL / LINQ cost catalog
 ```
 
-The wire contract is `src/shared/protocol.ts` and must stay in sync with
-`src/analyzer/ComplexityAnalyzer.Server/Protocol/Contracts.cs` and
-`src/shared/protocol.schema.json`. `AnalyzeRequest.selection` is the
-optional span for selection-scoped analysis.
+The wire contract is `src/shared/protocol.schema.json`, mirrored by
+`src/shared/protocol.ts` and
+`src/analyzer/ComplexityAnalyzer.Server/Protocol/Contracts.cs`.
+`AnalyzeRequest.selection` is the optional span for selection-scoped
+analysis. Catalog snapshots and algebra goldens also live in
+`src/shared/` — see `src/shared/README.md`.
 
 Roslyn entry points:
 

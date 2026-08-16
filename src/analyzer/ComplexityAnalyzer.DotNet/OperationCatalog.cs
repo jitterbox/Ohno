@@ -46,6 +46,15 @@ public sealed class OperationCatalog
 
     public void Add(CatalogEntry entry) => _entries[entry.Key] = entry;
 
+    /// <summary>
+    /// Stable snapshot for <c>src/shared/catalog.json</c>. Order is
+    /// by key so the file diffs by member, not insertion.
+    /// </summary>
+    public IReadOnlyList<CatalogEntry> Entries =>
+        _entries.Values
+            .OrderBy(e => e.Key, StringComparer.Ordinal)
+            .ToArray();
+
     public static string Key(string type, string member, int arity) =>
         $"{type}#{member}#{arity}";
 

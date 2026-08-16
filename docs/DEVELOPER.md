@@ -474,6 +474,8 @@ that window/Fibonacci are Medium with a matching reason.
 Register in `OperationCatalog` with type, name, arity, `SizeKind`,
 and `CostKind`. Use `Expected` / `Amortized` when the textbook bound
 is not worst-case (hash table, `List.Add`). Add an acceptance test.
+Refresh `src/shared/catalog.json` with `OHNO_WRITE_SHARED=1` so the
+TypeScript port keeps the same table.
 
 **Register every arity.** The catalog is keyed by arity, so
 `OrderBy#2` does not cover `OrderBy(keySelector, comparer)`. A missing
@@ -520,7 +522,9 @@ on `AnalysisState.RecurrenceId` so `PatternRefiner` can merge it.
 
 Implement the `IOperation`-equivalent walk (or a compiler API walk),
 emit `ComplexityResult`, and keep the Core algebra unchanged. Update
-`src/shared/protocol.ts` only if the wire shape changes.
+`src/shared/protocol.schema.json` (then `protocol.ts` and
+`Contracts.cs`) only if the wire shape changes. Algebra goldens live
+in `src/shared/algebra-vectors.json`.
 
 ## 7. Limits (do not paper over these)
 

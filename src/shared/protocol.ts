@@ -1,11 +1,11 @@
 /**
- * Ohno wire protocol — canonical TypeScript contract.
+ * Ohno wire protocol — TypeScript types for the extension.
+ *
+ * Source of truth: protocol.schema.json in this folder.
+ * C# mirror: ComplexityAnalyzer.Server/Protocol/Contracts.cs.
  *
  * Transport: header-delimited JSON-RPC 2.0 over stdio
  * (StreamJsonRpc on .NET <-> vscode-jsonrpc in the extension).
- *
- * The C# records in ComplexityAnalyzer.Server/Protocol/Contracts.cs
- * mirror these types; keep them in sync.
  *
  * `confidenceReasons` is empty when confidence is high. Below high it
  * lists the assumptions that cap the result (idiom match, amortized
