@@ -22,7 +22,6 @@ export class SolutionBinder {
   }
 
   async bindFile(uri: string): Promise<void> {
-    if (isSln(this.bound)) return;
     await this.bind(projectNear(filePathOf(uri)));
   }
 }
@@ -41,13 +40,12 @@ export function projectNear(filePath: string): string | undefined {
 }
 
 /**
- * A solution in this directory, in either format. `.slnx` is the XML
- * solution format, which MSBuildWorkspace has loaded since Roslyn 5.0
- * — looking only for `.sln` meant a repo that had migrated (including
- * this one) silently fell back to ad-hoc compilation.
+ * A solution in this directory, in either format. `.slnx` wins when
+ * both exist: that is the format a migrated repo keeps as canonical.
+ * MSBuildWorkspace has loaded it since Roslyn 5.0.
  */
 function firstSolution(dir: string): string | undefined {
-  return firstWithExt(dir, '.sln') ?? firstWithExt(dir, '.slnx');
+  return firstWithExt(dir, '.slnx') ?? firstWithExt(dir, '.sln');
 }
 
 function firstWithExt(dir: string, ext: string): string | undefined {

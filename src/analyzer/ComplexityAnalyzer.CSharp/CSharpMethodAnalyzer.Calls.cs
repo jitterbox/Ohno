@@ -165,16 +165,7 @@ public sealed partial class CSharpMethodAnalyzer
         if (entry.Materializes)
             state.Retained.Add(entry.Space.Bind(size));
 
-        var confidence = entry.Kind is CostKind.Exact
-            ? AnalysisConfidence.High
-            : AnalysisConfidence.Medium;
-        if (confidence < AnalysisConfidence.High)
-        {
-            state.Note(
-                AnalysisConfidence.Medium,
-                "A library cost is amortized or expected, "
-                + "not a worst-case guarantee.");
-        }
+        var confidence = NoteCatalogKind(entry, state);
         var label = call.TargetMethod.Name;
         if (entry.Kind is CostKind.Expected)
             label += " (expected)";
@@ -336,7 +327,20 @@ public sealed partial class CSharpMethodAnalyzer
             entry.Space.Bind(size),
             "alloc",
             create.Type?.Name ?? ".ctor",
-            RoslynSpans.Of(create));
+            RoslynSpans.Of(create),
+            NoteCatalogKind(entry, state));
+    }
+
+    private static AnalysisConfidence NoteCatalogKind(
+        CatalogEntry entry, AnalysisState state)
+    {
+        if (entry.Kind is CostKind.Exact)
+            return AnalysisConfidence.High;
+        state.Note(
+            AnalysisConfidence.Medium,
+            "A library cost is amortized or expected, "
+            + "not a worst-case guarantee.");
+        return AnalysisConfidence.Medium;
     }
 
     private static ComposedCost? CollectionCopy(

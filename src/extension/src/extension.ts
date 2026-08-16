@@ -117,17 +117,21 @@ function bindSolution(
   binder: SolutionBinder,
   output: vscode.OutputChannel,
 ): vscode.Disposable {
-  const work = vscode.workspace.findFiles(
-    '**/*.{sln,slnx}',
-    '{**/node_modules/**,**/bin/**,**/obj/**}',
-    1,
-  ).then((files) => {
-    if (!files[0]) return;
-    void binder.bind(files[0].fsPath).catch((error) => {
-      output.appendLine(`setSolution failed: ${String(error)}`);
-    });
-  });
-  return { dispose: () => void work };
+  let cancelled = false;
+  const bindActive = (): void => {
+    const editor = vscode.window.activeTextEditor;
+    if (cancelled || !editor) return;
+    void binder.bindFile(editor.document.uri.toString())
+      .catch((error) => {
+        output.appendLine(`setSolution failed: ${String(error)}`);
+      });
+  };
+  bindActive();
+  return {
+    dispose: () => {
+      cancelled = true;
+    },
+  };
 }
 
 export function deactivate(): void {

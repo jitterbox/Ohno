@@ -9,6 +9,43 @@ history after the fact — this file did not exist while those releases
 were made, so they summarize what shipped rather than what was written
 down at the time.
 
+## [0.1.4] — 2026-08-15
+
+Closes the remaining places 0.1.3 still invented a tight bound, and
+tightens the selection and release races found in the same pass.
+
+### Fixed
+
+- A user getter named `Count`, `Length`, or `Chars` is walked instead
+  of treated as free. The name check ran before the body walk, so a
+  `Count` that scanned an array reported O(1) High.
+- `for (j = i - 1; j >= 0; j--)` is O(n²). A literal *floor* is not a
+  fixed iteration count; only a literal *ceiling* (`j < 8`) is. The
+  while-shaped insertion sort already worked; the for spelling did not.
+- `get_Item` is no longer allowlisted for every BCL type. List stays
+  O(1); `SortedList` / `SortedDictionary` are O(log n);
+  `ImmutableList` is O(n). Catalog costs now bind on property reads
+  instead of treating a catalog hit as free.
+- `string.Concat(a, b, c)` is |a| + |b| + |c|. Concat was treated as
+  two-source by name, so the third operand disappeared.
+- `new Regex(..., NonBacktracking).IsMatch(t)` is linear. Only
+  assigned constructions and static overloads were recorded before.
+- Clearing the editor selection cancels in-flight work and bumps the
+  ticket, so a late response cannot restore the panel.
+- A disposed analyzer client will not spawn a new server if
+  `setSolution` lands after deactivate.
+- Workspace bind uses the active file and prefers `.slnx` over `.sln`
+  when both exist; one solution can replace another.
+- Manual release checks out `inputs.target` (or the tag SHA), so the
+  packaged VSIX matches the tagged commit.
+- Selection analysis honors `ohno.performance.maxFileSizeKb`, matching
+  the document path.
+
+### Changed
+
+- Expected and amortized catalog constructors report Medium
+  confidence, the same as cataloged calls.
+
 ## [0.1.3] — 2026-08-15
 
 The theme is honesty about what is and is not known: constant time now
@@ -158,6 +195,7 @@ guessing in the places it used to.
   on-demand deep analysis.
 - A GitHub Actions workflow packaging per-platform VSIX artifacts.
 
+[0.1.4]: https://github.com/jitterbox/Ohno/releases/tag/v0.1.4
 [0.1.3]: https://github.com/jitterbox/Ohno/releases/tag/v0.1.3
 [0.1.2]: https://github.com/jitterbox/Ohno/releases/tag/v0.1.2
 [0.1.1]: https://github.com/jitterbox/Ohno/releases/tag/v0.1.1

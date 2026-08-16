@@ -117,10 +117,10 @@ internal static class SizeResolver
     }
 
     /// <summary>
-    /// Operators that consume two sequences produce a result sized by
-    /// both. Keeping them independent is the point: <c>a.Concat(b)</c>
-    /// is |a| + |b|, not |a| — assuming otherwise would fold an
-    /// independent dimension into the receiver.
+    /// Operators that consume two or more sequences are sized by every
+    /// collection operand. <c>a.Concat(b)</c> is |a| + |b|;
+    /// <c>string.Concat(a, b, c)</c> is |a| + |b| + |c|. Folding a
+    /// later source into the first would drop an independent dimension.
     /// </summary>
     private static bool TryTwoSource(
         IInvocationOperation invocation,
@@ -131,15 +131,22 @@ internal static class SizeResolver
         if (!IsTwoSourceOperator(invocation.TargetMethod.Name))
             return false;
 
-        var left = invocation.Instance
-            ?? invocation.Arguments.FirstOrDefault()?.Value;
-        var right = invocation.Instance is null
-            ? invocation.Arguments.Skip(1).FirstOrDefault()?.Value
-            : invocation.Arguments.FirstOrDefault()?.Value;
-        if (left is null || right is null) return false;
-        if (!DimensionInferrer.IsCollection(right.Type)) return false;
+        var parts = new List<ComplexityExpression>();
+        if (invocation.Instance is not null
+            && DimensionInferrer.IsCollection(invocation.Instance.Type))
+        {
+            parts.Add(Resolve(invocation.Instance, state));
+        }
 
-        size = Cx.Add(Resolve(left, state), Resolve(right, state));
+        foreach (var argument in invocation.Arguments)
+        {
+            if (!DimensionInferrer.IsCollection(argument.Value.Type))
+                continue;
+            parts.Add(Resolve(argument.Value, state));
+        }
+
+        if (parts.Count < 2) return false;
+        size = Cx.Add(parts);
         return true;
     }
 

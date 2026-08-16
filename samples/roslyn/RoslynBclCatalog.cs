@@ -2,6 +2,7 @@ using System;
 using System.Buffers;
 using System.Collections.Frozen;
 using System.Collections.Generic;
+using System.Collections.Immutable;
 using System.Linq;
 using System.Text;
 
@@ -226,6 +227,30 @@ public static class RoslynBclCatalog
     public static int Clamp(int value, int low, int high)
     {
         return Math.Clamp(value, low, high);
+    }
+
+    // Known Time: Θ(n + m + p) — three independent strings.
+    public static string GlueThree(string left, string mid, string right)
+    {
+        return string.Concat(left, mid, right);
+    }
+
+    // Known Time: Θ(1) — List indexer is a stored slot.
+    public static int AtList(List<int> items, int index)
+    {
+        return items[index];
+    }
+
+    // Known Time: Θ(log n) — SortedList indexer is a tree walk.
+    public static int AtSorted(SortedList<int, int> items, int key)
+    {
+        return items[key];
+    }
+
+    // Known Time: Θ(n) — ImmutableList indexer walks the spine.
+    public static int AtImmutable(ImmutableList<int> items, int index)
+    {
+        return items[index];
     }
 
     public sealed class Item

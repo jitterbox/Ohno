@@ -10,10 +10,10 @@ namespace ComplexityAnalyzer.CSharp;
 /// <remarks>
 /// Comparison loops use
 /// <see href="https://learn.microsoft.com/dotnet/csharp/language-reference/statements/iteration-statements">iteration statements</see>.
-/// Logarithmic bounds require a doubling or halving update
-/// (<c>*= 2</c>, <c>/= 2</c>) on <see cref="IForLoopOperation.AtLoopBottom"/>
-/// or in the while body. <c>size = size / 2</c> and <c>size &gt;&gt;= 1</c>
-/// are not currently recognized.
+/// Logarithmic bounds are recognized from a doubling or halving
+/// update (<c>*= 2</c>, <c>/= 2</c>, <c>&gt;&gt;= 1</c>, or
+/// <c>size = size / 2</c>) on <see cref="IForLoopOperation.AtLoopBottom"/>
+/// or in the while body.
 /// Null-terminated walks assume a finite acyclic chain.
 /// A <c>while (queue.Count &gt; 0)</c> plus a <c>bool[]</c> write is
 /// treated as a visited frontier (BFS), not an unbounded spin.
@@ -76,21 +76,17 @@ internal static class LoopBoundInferrer
     {
         if (IsComparison(binary.OperatorKind))
         {
-            // A literal ceiling on a counter that steps by a constant
-            // is a fixed iteration count: `for (j = 0; j < 8; j++)`
-            // runs a constant number of times and must not inherit the
-            // enclosing loop's bound.
+            // A literal *upper* bound on a constant-step counter is a
+            // fixed count: `for (j = 0; j < 8; j++)`. A literal
+            // *floor* (`j >= 0`) is not — iterations then follow
+            // wherever the counter was seeded, which may be the
+            // enclosing index (`j = i - 1`).
             //
-            // The counter has to be one the increment scan actually
-            // tracked. `while (size > 1) size >>= 1` also compares
-            // against a literal, but it moves multiplicatively, so its
-            // count is logarithmic in the starting value — the halving
-            // detection downstream handles that.
-            if (IsLiteral(binary.RightOperand)
-                && IsSteppedCounter(binary.LeftOperand, state))
-            {
+            // `while (size > 1) size >>= 1` also compares against a
+            // literal, but it is not a stepped counter; halving
+            // detection downstream keeps that logarithmic.
+            if (IsFixedLiteralCeiling(binary, state))
                 return Cx.One;
-            }
 
             var right = SizeResolver.Resolve(binary.RightOperand, state);
             var left = SizeResolver.Resolve(binary.LeftOperand, state);
@@ -101,6 +97,20 @@ internal static class LoopBoundInferrer
         }
 
         return Cx.Var("n");
+    }
+
+    private static bool IsFixedLiteralCeiling(
+        IBinaryOperation binary, AnalysisState state)
+    {
+        if (binary.OperatorKind is not (
+            BinaryOperatorKind.LessThan
+            or BinaryOperatorKind.LessThanOrEqual))
+        {
+            return false;
+        }
+
+        return IsLiteral(binary.RightOperand)
+            && IsSteppedCounter(binary.LeftOperand, state);
     }
 
     private static bool IsLiteral(IOperation operation) =>
@@ -276,32 +286,33 @@ internal static class LoopBoundInferrer
     /// </para>
     /// </remarks>
     public static bool ResetsCounter(
-        IWhileLoopOperation loop, AnalysisState state)
+        IOperation loop, AnalysisState state)
     {
         if (state.CurrentLoopBody is not { } outer) return false;
-        var counters = CounterSymbols(loop.Condition);
+        var counters = CounterSymbols(LoopCondition(loop));
         if (counters.Count == 0) return false;
-
-        foreach (var op in OutsideInnerLoop(outer, loop))
-        {
-            switch (op)
-            {
-                // Re-seeded: `j = i - 1` before each inner walk.
-                case ISimpleAssignmentOperation assign
-                    when Targets(assign.Target, counters):
-                    return true;
-
-                // Declared inside the outer body, so it is a fresh
-                // variable on every outer step — the same reset, spelt
-                // as `var j = i - 1`.
-                case IVariableDeclaratorOperation declarator
-                    when counters.Contains(declarator.Symbol):
-                    return true;
-            }
-        }
-
-        return false;
+        return OutsideInnerLoop(outer, loop)
+            .Any(op => SeedsCounter(op, counters));
     }
+
+    private static IOperation? LoopCondition(IOperation loop) =>
+        loop switch
+        {
+            IWhileLoopOperation w => w.Condition,
+            IForLoopOperation f => f.Condition,
+            _ => null,
+        };
+
+    private static bool SeedsCounter(
+        IOperation operation, HashSet<ISymbol> counters) =>
+        operation switch
+        {
+            ISimpleAssignmentOperation assign
+                when Targets(assign.Target, counters) => true,
+            IVariableDeclaratorOperation declarator
+                when counters.Contains(declarator.Symbol) => true,
+            _ => false,
+        };
 
     private static bool Targets(
         IOperation target, HashSet<ISymbol> counters)

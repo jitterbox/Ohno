@@ -45,6 +45,10 @@ public class BclCatalogTests
         { "FlipInPlace", "O(n)", "O(1)" },
         { "LazyEvens", "O(1)", "O(1)" },
         { "Clamp", "O(1)", "O(1)" },
+        { "GlueThree", "O(m + n + p)", "O(m + n + p)" },
+        { "AtList", "O(1)", "O(1)" },
+        { "AtSorted", "O(log n)", "O(1)" },
+        { "AtImmutable", "O(n)", "O(1)" },
     };
 
     [Theory]
@@ -118,6 +122,34 @@ public class BclCatalogTests
             .Select(d => d.ToString())
             .ToArray();
         Assert.True(errors.Length == 0, string.Join("\n", errors));
+    }
+
+    /// <summary>
+    /// Indexing through an interface (or any cataloged indexer) must
+    /// keep its bound — removing the blanket <c>get_Item</c> allowlist
+    /// must not turn a list index into a dangling C(name).
+    /// </summary>
+    [Fact]
+    public void InterfaceIndexer_KeepsConstantRead()
+    {
+        const string source = """
+            using System.Collections.Generic;
+            public static class Probe
+            {
+                public static int Sum(IReadOnlyList<int> values)
+                {
+                    var s = 0;
+                    for (var i = 0; i < values.Count; i++) s += values[i];
+                    return s;
+                }
+            }
+            """;
+        var analysis = new CSharpFileAnalyzer().Analyze(source, AnalysisTier.Fast);
+        var fn = analysis.Functions.Single(f => f.Symbol.Name == "Sum");
+        var time = ComplexityFormatter.FormatBigO(fn.Result.Time);
+        _output.WriteLine($"Sum: {time} conf={fn.Result.Confidence}");
+        Assert.Equal("O(n)", time);
+        Assert.DoesNotContain("C(", time, StringComparison.Ordinal);
     }
 
     private static ComplexityResult Analyze(string name)

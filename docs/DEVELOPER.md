@@ -234,8 +234,9 @@ cap confidence at Medium when they only annotate.
 
 ### 3.1 Fast tier
 
-When a `.sln` is found, or a `.csproj` is found by walking up from
-the file, and that graph is ready, fast uses the same project
+When a `.sln` or `.slnx` is found, or a `.csproj` is found by
+walking up from the file, and that graph is ready, fast uses the
+same project
 `SemanticModel` as deep (buffer overlaid). It does **not** wait on
 an in-progress solution open. It does wait for the workspace gate
 once the graph is ready, so a deep run cannot silently force ad-hoc.

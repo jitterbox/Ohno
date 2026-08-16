@@ -32,6 +32,20 @@ describe('projectNear', () => {
     }
   });
 
+  it('prefers slnx when both formats sit together', () => {
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), 'ohno-both-'));
+    try {
+      fs.writeFileSync(path.join(root, 'App.csproj'), '<Project />');
+      fs.writeFileSync(path.join(root, 'App.sln'), '');
+      fs.writeFileSync(path.join(root, 'App.slnx'), '<Solution />');
+      const file = path.join(root, 'Use.cs');
+      fs.writeFileSync(file, '');
+      expect(projectNear(file)).toBe(path.join(root, 'App.slnx'));
+    } finally {
+      fs.rmSync(root, { recursive: true, force: true });
+    }
+  });
+
   it('finds a slnx solution', () => {
     const root = fs.mkdtempSync(path.join(os.tmpdir(), 'ohno-slnx-'));
     try {
@@ -85,6 +99,16 @@ describe('SolutionBinder', () => {
     await binder.bind('/tmp/App.sln');
     await binder.bind('/tmp/Lib.csproj');
     expect(calls).toEqual(['/tmp/App.sln']);
+  });
+
+  it('replaces one solution with another', async () => {
+    const calls: string[] = [];
+    const binder = new SolutionBinder(async (p) => {
+      calls.push(p);
+    });
+    await binder.bind('/tmp/App.sln');
+    await binder.bind('/tmp/Other.slnx');
+    expect(calls).toEqual(['/tmp/App.sln', '/tmp/Other.slnx']);
   });
 
   it('does not replace a slnx with a csproj', async () => {
