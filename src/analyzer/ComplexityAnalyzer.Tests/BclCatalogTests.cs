@@ -152,6 +152,43 @@ public class BclCatalogTests
         Assert.DoesNotContain("C(", time, StringComparison.Ordinal);
     }
 
+    /// <summary>
+    /// Uncataloged dictionary indexers used to dangle as C(name) at
+    /// Low. ConcurrentDictionary.TryGetValue is O(1) expected;
+    /// ImmutableDictionary.get_Item is O(log n). Both must resolve.
+    /// </summary>
+    [Fact]
+    public void DictionaryIndexers_ResolveWithoutOpaqueCall()
+    {
+        const string source = """
+            using System.Collections.Concurrent;
+            using System.Collections.Immutable;
+            public static class Probe
+            {
+                private static readonly ConcurrentDictionary<string, int> Hot = new();
+                private static readonly ImmutableDictionary<string, int> Ranks =
+                    ImmutableDictionary<string, int>.Empty;
+
+                public static int Score(string[] ids)
+                {
+                    var s = 0;
+                    foreach (var id in ids)
+                    {
+                        if (Hot.TryGetValue(id, out var v)) s += v;
+                        s += Ranks[id];
+                    }
+                    return s;
+                }
+            }
+            """;
+        var analysis = new CSharpFileAnalyzer().Analyze(source, AnalysisTier.Fast);
+        var fn = analysis.Functions.Single(f => f.Symbol.Name == "Score");
+        var time = ComplexityFormatter.FormatBigO(fn.Result.Time);
+        _output.WriteLine($"Score: {time} conf={fn.Result.Confidence}");
+        Assert.DoesNotContain("C(", time, StringComparison.Ordinal);
+        Assert.Contains("log n", time, StringComparison.Ordinal);
+    }
+
     private static ComplexityResult Analyze(string name)
     {
         var compilation = CompilationFactory.Create(

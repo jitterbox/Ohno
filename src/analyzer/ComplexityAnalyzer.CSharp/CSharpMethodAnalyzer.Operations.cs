@@ -224,6 +224,7 @@ public sealed partial class CSharpMethodAnalyzer
 
         HeapBoundDetector.Detect(loop.Body, state);
         NoteElementSize(loop, state);
+        NoteNestedCollection(loop, state);
         var (bound, label) = LoopBoundInferrer.Infer(loop, state);
         var move = MoveNextCost(loop, state);
         if (move is null)
@@ -365,8 +366,16 @@ public sealed partial class CSharpMethodAnalyzer
     private ComposedCost AnalyzePropertyRead(
         IPropertyReferenceOperation prop, AnalysisState state)
     {
-        if (prop.Parent is IAssignmentOperation)
+        // A plain assignment target is a write, so the getter never
+        // runs. A compound assignment (s += d[k]) both reads and
+        // writes, and Roslyn leaves IsAssignmentTarget false on the
+        // read, so it still flows to the getter cost below.
+        if (prop.Parent is IAssignmentOperation assign
+            && assign.Target == prop)
+        {
             return AnalyzeChildren(prop, state);
+        }
+
         var getter = prop.Property.GetMethod;
         if (getter is null) return AnalyzeChildren(prop, state);
         if (getter.DeclaringSyntaxReferences.Length > 0)
@@ -537,6 +546,31 @@ public sealed partial class CSharpMethodAnalyzer
         if (!DimensionInferrer.IsCollection(local.Type)) return;
         state.Sizes[local] = DimensionInferrer.Fresh(
             state, $"{local.Name}.Length");
+    }
+
+    /// <summary>
+    /// A foreach over a nested collection's element (an adjacency
+    /// list) reads a size that is not written anywhere in the source.
+    /// Keep the bound at the enclosing dimension and say so, rather
+    /// than pretending the inner length is proven.
+    /// </summary>
+    private static void NoteNestedCollection(
+        IForEachLoopOperation loop, AnalysisState state)
+    {
+        var op = SizeResolver.Unwrap(loop.Collection);
+        var isNested = op switch
+        {
+            IArrayElementReferenceOperation e =>
+                DimensionInferrer.IsCollection(e.Type),
+            IPropertyReferenceOperation p when p.Property.IsIndexer =>
+                DimensionInferrer.IsCollection(p.Type),
+            _ => false,
+        };
+        if (!isNested) return;
+        state.Note(
+            AnalysisConfidence.Medium,
+            "A nested collection is read per element of the outer one; "
+            + "an independent edge count is not visible in the source.");
     }
 
     private static void TrackAlias(
