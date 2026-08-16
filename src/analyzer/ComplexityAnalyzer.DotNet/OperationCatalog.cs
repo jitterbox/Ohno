@@ -434,6 +434,7 @@ public sealed class OperationCatalog
 
         const string dict = "System.Collections.Generic.SortedDictionary`2";
         Method(dict, "get_Count", 0, SizeKind.Constant);
+        Method(dict, "get_Item", 1, SizeKind.LogReceiver);
         Method(dict, "Add", 2, SizeKind.LogReceiver,
             delta: SizeDeltaKind.Increment);
         Method(dict, "Remove", 1, SizeKind.LogReceiver,
@@ -441,6 +442,10 @@ public sealed class OperationCatalog
         Method(dict, "ContainsKey", 1, SizeKind.LogReceiver);
         Method(dict, "Clear", 0, SizeKind.Receiver,
             delta: SizeDeltaKind.Clear);
+
+        const string sl = "System.Collections.Generic.SortedList`2";
+        Method(sl, "get_Count", 0, SizeKind.Constant);
+        Method(sl, "get_Item", 1, SizeKind.LogReceiver);
     }
 
     private void RegisterStringBuilder()
@@ -602,6 +607,11 @@ public sealed class OperationCatalog
         Method(list, "Remove", 1, SizeKind.LogReceiver,
             space: SizeKind.Receiver, delta: SizeDeltaKind.Decrement);
         Method(list, "get_Count", 0, SizeKind.Constant);
+        Method(list, "get_Item", 1, SizeKind.Receiver);
+
+        const string array = "System.Collections.Immutable.ImmutableArray`1";
+        Method(array, "get_Length", 0, SizeKind.Constant);
+        Method(array, "get_Item", 1, SizeKind.Constant);
     }
 
     private void RegisterLinq()

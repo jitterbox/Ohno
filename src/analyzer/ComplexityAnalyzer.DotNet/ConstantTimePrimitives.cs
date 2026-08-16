@@ -114,8 +114,10 @@ public static class ConstantTimePrimitives
 
     /// <summary>
     /// Property getters that read a stored field or a fixed-size view.
-    /// Keyed by member name and only consulted for BCL types, so a user
-    /// type's <c>Count</c> still resolves through its own body.
+    /// Keyed by member name and only consulted for BCL types. Indexers
+    /// are not listed here — <c>get_Item</c> is O(1) on a list and
+    /// O(n) on <c>ImmutableList</c>, so each type belongs in the
+    /// catalog. A user type's <c>Count</c> walks its getter body.
     /// </summary>
     private static readonly HashSet<string> ConstantAccessors = new(
         StringComparer.Ordinal)
@@ -138,7 +140,6 @@ public static class ConstantTimePrimitives
         "get_IsDefaultOrEmpty",
         "get_Span",
         "get_Memory",
-        "get_Item",
         "get_Chars",
         "get_UnorderedItems",
         // Cached singletons: reading one is a static field load.

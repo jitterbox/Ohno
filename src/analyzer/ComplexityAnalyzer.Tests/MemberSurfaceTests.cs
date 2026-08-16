@@ -75,6 +75,18 @@ public class MemberSurfaceTests
             }
 
             public int Count() => _names.Count;
+
+            // Same name as the BCL Count property, but this getter
+            // scans. The name must not make the read free.
+            public int Count
+            {
+                get
+                {
+                    var total = 0;
+                    foreach (var value in _values) total += value;
+                    return total;
+                }
+            }
         }
         """;
 
@@ -96,6 +108,7 @@ public class MemberSurfaceTests
         Assert.Contains("Largest.get", names);
         Assert.Contains("Newest.set", names);
         Assert.Contains("this[].get", names);
+        Assert.Contains("Count.get", names);
         Assert.Contains("op_Addition", names);
     }
 
@@ -112,6 +125,7 @@ public class MemberSurfaceTests
     [InlineData("Total.get", "O(n)")]
     [InlineData("Largest.get", "O(n)")]
     [InlineData("this[].get", "O(n)")]
+    [InlineData("Count.get", "O(n)")]
     public void ScanningAccessor_ReportsItsRealBound(
         string name, string time)
     {

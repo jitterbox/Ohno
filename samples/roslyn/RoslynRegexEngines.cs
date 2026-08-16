@@ -47,6 +47,13 @@ public static partial class RoslynRegexEngines
         return pattern.IsMatch(text);
     }
 
+    // Known Time: Θ(n) — construction and use in one expression.
+    public static bool LinearInlineMatch(string text)
+    {
+        return new Regex("a+", RegexOptions.NonBacktracking)
+            .IsMatch(text);
+    }
+
     // Known Time: Θ(n) — static overload carrying the options.
     public static bool LinearStaticMatch(string text)
     {

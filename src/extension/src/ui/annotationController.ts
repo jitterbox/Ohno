@@ -139,6 +139,8 @@ export class AnnotationController implements vscode.Disposable {
     const uri = editor.document.uri;
     if (editor.selection.isEmpty) {
       this.lastSelection = '';
+      this.selectionVersion++;
+      this.selectionCancel?.cancel();
       this.store.clearSelection(uri);
       return;
     }
@@ -167,6 +169,9 @@ export class AnnotationController implements vscode.Disposable {
     const config = readConfig();
     const doc = editor.document;
     if (!languageEnabled(doc.languageId, config)) return;
+    const text = doc.getText();
+    if (config.maxFileSizeKb > 0
+      && text.length > config.maxFileSizeKb * 1024) return;
     const analyzer = this.registry.get(doc.languageId);
     if (!analyzer) return;
     this.selectionCancel?.cancel();
@@ -178,7 +183,7 @@ export class AnnotationController implements vscode.Disposable {
     try {
       const response = await analyzer.analyze({
         uri: doc.uri.toString(),
-        text: doc.getText(),
+        text,
         version: doc.version,
         tier: 'fast',
         selection: normalizeRange(

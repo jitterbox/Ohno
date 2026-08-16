@@ -71,9 +71,10 @@ internal static class RegexFacts
         if (call.Instance is null)
             return MentionsNonBacktracking(call.Arguments);
 
-        // Instance form: the receiver has to resolve to a construction
-        // we saw, or to a [GeneratedRegex] method declaring the option.
+        // Instance form: inline `new Regex(..., NonBacktracking)`, a
+        // construction we recorded, or [GeneratedRegex].
         if (IsGeneratedNonBacktracking(call.Instance)) return true;
+        if (IsInlineNonBacktracking(call.Instance)) return true;
         var symbol = SizeResolver.TargetSymbol(call.Instance);
         return symbol is not null && state.LinearRegexes.Contains(symbol);
     }
@@ -116,6 +117,18 @@ internal static class RegexFacts
             Field.Name: "NonBacktracking",
         } field
         && SymbolKeys.TypeName(field.Field.ContainingType) == OptionsType;
+
+    private static bool IsInlineNonBacktracking(IOperation instance)
+    {
+        if (SizeResolver.Unwrap(instance)
+            is not IObjectCreationOperation create)
+        {
+            return false;
+        }
+
+        return SymbolKeys.TypeName(create.Type) == RegexType
+            && MentionsNonBacktracking(create.Arguments);
+    }
 
     private static bool IsGeneratedNonBacktracking(IOperation instance)
     {

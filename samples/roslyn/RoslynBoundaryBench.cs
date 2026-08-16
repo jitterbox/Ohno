@@ -90,6 +90,22 @@ public static class RoslynBoundaryBench
         }
     }
 
+    // Θ(n²): the same algorithm, spelled with an inner for.
+    // `j >= 0` is a floor, not a fixed ceiling of 0.
+    public static void InsertionSortFor(int[] values)
+    {
+        for (var i = 1; i < values.Length; i++)
+        {
+            var key = values[i];
+            for (var j = i - 1; j >= 0; j--)
+            {
+                if (values[j] <= key) break;
+                values[j + 1] = values[j];
+                values[j] = key;
+            }
+        }
+    }
+
     // Θ(n log n): the library sort, one call.
     public static void LibrarySort(int[] values)
     {

@@ -22,6 +22,10 @@ internal static class HeapBoundDetector
             if (operation is not IConditionalOperation cond) continue;
             if (!TryBound(cond.Condition, state, out var heap, out var bound))
                 continue;
+            // The cap only holds when eviction happens *because* the
+            // collection exceeded k — i.e. in the `Count > k` arm. A
+            // shrink in `else` runs while Count <= k and removes
+            // without overflowing, so it is not a bound.
             if (!ContainsShrink(cond.WhenTrue, heap)) continue;
             state.HeapBounds[heap] = bound;
             state.Sizes[heap] = bound;
@@ -67,10 +71,12 @@ internal static class HeapBoundDetector
     private static bool ContainsShrink(IOperation? body, ISymbol heap)
     {
         if (body is null) return false;
-        return OperationTree.SelfAndDescendants(body).OfType<IInvocationOperation>().Any(call =>
-            IsShrink(call.TargetMethod.Name)
-            && SymbolEqualityComparer.Default.Equals(
-                SizeResolver.TargetSymbol(call.Instance), heap));
+        return OperationTree.SelfAndDescendants(body)
+            .OfType<IInvocationOperation>()
+            .Any(call =>
+                IsShrink(call.TargetMethod.Name)
+                && SymbolEqualityComparer.Default.Equals(
+                    SizeResolver.TargetSymbol(call.Instance), heap));
     }
 
     private static bool IsShrink(string name) =>

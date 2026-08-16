@@ -18,6 +18,7 @@ export class AnalyzerRpcClient {
   private process: ChildProcess | undefined;
   private connection: MessageConnection | undefined;
   private starting: Promise<MessageConnection> | undefined;
+  private disposed = false;
 
   constructor(
     private readonly serverPath: string,
@@ -52,6 +53,7 @@ export class AnalyzerRpcClient {
   }
 
   dispose(): void {
+    this.disposed = true;
     this.announceShutdown();
     this.connection?.dispose();
     this.kill(this.process);
@@ -91,6 +93,9 @@ export class AnalyzerRpcClient {
   }
 
   private async ensure(): Promise<MessageConnection> {
+    if (this.disposed) {
+      throw new Error('Analyzer client disposed');
+    }
     if (this.connection) return this.connection;
     if (this.starting) return this.starting;
     this.starting = this.start();

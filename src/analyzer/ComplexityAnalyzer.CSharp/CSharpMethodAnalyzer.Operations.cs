@@ -369,8 +369,6 @@ public sealed partial class CSharpMethodAnalyzer
             return AnalyzeChildren(prop, state);
         var getter = prop.Property.GetMethod;
         if (getter is null) return AnalyzeChildren(prop, state);
-        if (prop.Property.Name is "Length" or "Count" or "Chars")
-            return AnalyzeChildren(prop, state);
         if (getter.DeclaringSyntaxReferences.Length > 0)
         {
             return prop.SemanticModel is { } model
@@ -402,8 +400,8 @@ public sealed partial class CSharpMethodAnalyzer
 
         var type = SymbolKeys.TypeName(prop.Property.ContainingType);
         var key = SymbolKeys.ForMethod(getter.OriginalDefinition);
-        if (key is not null && _catalog.TryGet(key, out _))
-            return AnalyzeChildren(prop, state);
+        if (key is not null && _catalog.TryGet(key, out var entry))
+            return CatalogProperty(prop, entry, state);
         if (ConstantTimePrimitives.IsConstantAccessor(type, getter.Name))
             return AnalyzeChildren(prop, state);
 
@@ -416,6 +414,25 @@ public sealed partial class CSharpMethodAnalyzer
             + "of assumed constant");
         return CostComposer.Sequential(
             new[] { children, call }, RoslynSpans.Of(prop));
+    }
+
+    private ComposedCost CatalogProperty(
+        IPropertyReferenceOperation prop,
+        CatalogEntry entry,
+        AnalysisState state)
+    {
+        var size = SizeResolver.Resolve(prop.Instance, state);
+        var confidence = NoteCatalogKind(entry, state);
+        var cataloged = ComposedCost.Of(
+            entry.Time.Bind(size),
+            entry.Space.Bind(size),
+            "prop",
+            prop.Property.Name,
+            RoslynSpans.Of(prop),
+            confidence);
+        var children = AnalyzeChildren(prop, state);
+        return CostComposer.Sequential(
+            new[] { children, cataloged }, RoslynSpans.Of(prop));
     }
 
     private ComposedCost AnalyzeBinary(

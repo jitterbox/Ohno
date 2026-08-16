@@ -27,6 +27,7 @@ public class RegexEngineTests
     [InlineData("LinearMatch", "O(n)")]
     [InlineData("LinearWithCombinedOptions", "O(n)")]
     [InlineData("LinearStaticMatch", "O(n)")]
+    [InlineData("LinearInlineMatch", "O(n)")]
     [InlineData("LinearReplace", "O(n)")]
     public void NonBacktracking_EarnsALinearBound(
         string name, string time)

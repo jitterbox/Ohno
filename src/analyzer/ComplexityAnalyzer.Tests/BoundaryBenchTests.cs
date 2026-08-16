@@ -34,6 +34,7 @@ public class BoundaryBenchTests
 
         // Linearithmic against quadratic.
         { "InsertionSort", "O(n²)", "O(1)" },
+        { "InsertionSortFor", "O(n²)", "O(1)" },
         { "LibrarySort", "O(n log n)", "O(1)" },
         { "CountInversionsNaive", "O(n²)", "O(1)" },
 
@@ -79,6 +80,7 @@ public class BoundaryBenchTests
     [InlineData("HasDuplicateByHash", "HasDuplicateBySort")]
     [InlineData("LargestValue", "KthLargestBySort")]
     [InlineData("LibrarySort", "InsertionSort")]
+    [InlineData("LibrarySort", "InsertionSortFor")]
     [InlineData("BinarySearchIndex", "LinearSearchIndex")]
     [InlineData("SumOfBoth", "PairSum")]
     public void AdjacentClasses_StayDistinct(string cheaper, string dearer)
