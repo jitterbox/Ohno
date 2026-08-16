@@ -20,7 +20,6 @@ export interface OhnoConfig {
   languages: Readonly<Record<string, boolean>>;
   tier: AnalysisTier;
   mode: AnnotationMode;
-  showInline: boolean;
   nestingDepth: number;
   showSpace: boolean;
   showConfidence: boolean;
@@ -37,8 +36,7 @@ export function readConfig(): OhnoConfig {
     enabled: c.get('enabled', true),
     languages: readLanguageFlags(c),
     tier: c.get('analysis.tier', 'fast'),
-    mode: c.get('annotations.mode', 'inline'),
-    showInline: c.get('annotations.showInline', true),
+    mode: readAnnotationMode(c),
     nestingDepth: c.get('annotations.nestingDepth', 2),
     showSpace: c.get('annotations.showSpace', true),
     showConfidence: c.get('annotations.showConfidence', true),
@@ -48,6 +46,21 @@ export function readConfig(): OhnoConfig {
     analyzerPath: c.get('csharp.analyzerPath', ''),
     logLevel: c.get('server.logLevel', 'warn'),
   };
+}
+
+/**
+ * `annotations.mode` is the only display switch. The old
+ * `annotations.showInline` boolean overlapped it: false + inline
+ * meant "hide", which is just `off`. Honor that leftover so
+ * existing settings.json files keep working.
+ */
+function readAnnotationMode(
+  c: vscode.WorkspaceConfiguration,
+): AnnotationMode {
+  const mode = c.get<AnnotationMode>('annotations.mode', 'inline');
+  const showInline = c.get('annotations.showInline', true);
+  if (!showInline && mode === 'inline') return 'off';
+  return mode;
 }
 
 export function languageEnabled(

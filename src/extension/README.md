@@ -13,6 +13,9 @@ C# is the only selectable language (bundled Roslyn server).
 This is **not** Visual Studio cyclomatic complexity
 ([CA1502](https://learn.microsoft.com/dotnet/fundamentals/code-analysis/quality-rules/ca1502)).
 Ohno estimates how work and peak extra memory grow with input size.
+Library costs are the current BCL, not the project's
+`TargetFramework` — the same source gets the same bound on net8
+as on net10.
 
 The Complexity view lists up to three **approaches** (dominant,
 nested, sequential, or alternative). Select a statement or loop to

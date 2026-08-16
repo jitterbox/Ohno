@@ -2,7 +2,7 @@
   "name": "ohno",
   "displayName": "Oʰ(nᵒ) — Algorithmic Complexity",
   "description": "Inline Big-O time and space estimates for C# functions, with confidence, named approaches, and selection-scoped analysis.",
-  "version": "0.1.5",
+  "version": "0.1.6",
   "publisher": "ohno-dev",
   "license": "MIT",
   "repository": {
@@ -52,11 +52,6 @@
             "description": "Reserved. Automatic analysis always uses the fast tier; deep analysis runs only via 'Ohno: Run Deep Analysis'.",
             "markdownDeprecationMessage": "Automatic analysis is always fast. Use the 'Ohno: Run Deep Analysis' command for solution-wide analysis."
           },
-        "ohno.annotations.showInline": {
-          "type": "boolean",
-          "default": true,
-          "description": "Show complexity estimates as inline end-of-line annotations in the editor."
-        },
         "ohno.annotations.mode": {
           "type": "string",
           "enum": [
@@ -64,8 +59,20 @@
             "codelens",
             "off"
           ],
+          "enumDescriptions": [
+            "End-of-line decorations on the function signature.",
+            "CodeLens above each function.",
+            "No editor annotations. Analysis and the Complexity view still run."
+          ],
           "default": "inline",
-          "description": "How complexity annotations are displayed: inline end-of-line decorations, CodeLens above functions, or off."
+          "description": "How complexity annotations appear in the editor: inline end-of-line decorations, CodeLens above functions, or off."
+        },
+        "ohno.annotations.showInline": {
+          "type": "boolean",
+          "default": true,
+          "description": "Deprecated. Use ohno.annotations.mode instead.",
+          "deprecationMessage": "Use ohno.annotations.mode instead. Set mode to off to hide annotations, or inline / codelens to choose how they appear.",
+          "markdownDeprecationMessage": "Use `#ohno.annotations.mode#` instead. Set it to `off` to hide annotations, or `inline` / `codelens` to choose how they appear."
         },
         "ohno.annotations.nestingDepth": {
           "type": "number",

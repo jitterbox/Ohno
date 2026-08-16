@@ -299,9 +299,7 @@ export class AnnotationController implements vscode.Disposable {
     config: OhnoConfig,
   ): void {
     const uri = editor.document.uri;
-    if (!config.showInline
-      || config.mode === 'off'
-      || config.mode === 'codelens') {
+    if (config.mode !== 'inline') {
       this.clearDocument(uri);
       return;
     }

@@ -451,7 +451,10 @@ that window/Fibonacci are Medium with a matching reason.
 - Selection analysis is a second `ohno/analyze` with `selection`,
   debounced (≤ 200 ms), ticketed so a stale response cannot land,
   and stored separately from document functions.
-- Inline annotations are gated by `ohno.annotations.showInline`.
+- Editor annotations are gated by `ohno.annotations.mode`
+  (`inline`, `codelens`, or `off`). The old
+  `ohno.annotations.showInline` boolean is still read: `false` with
+  the default `inline` mode is treated as `off`.
 - Accessors, indexers, and operators are **analyzed** like any other
   member and always appear in the panel; `ohno.annotations.accessors`
   controls only whether they get an inline decoration, defaulting to
@@ -482,6 +485,20 @@ exists to use everyday APIs rather than only the ones already known.
 Only put a member in `ConstantTimePrimitives` when its cost is fixed
 regardless of any input size. Anything size-dependent belongs in the
 catalog with a real template.
+
+**Do not version catalog entries by TFM.** The table is the current
+BCL. The same source is meant to get the same bound on every
+supported runtime. Constant-factor changes (SIMD `IndexOf`,
+`SearchValues`, culture vs ordinal `string.IndexOf`) stay the same
+`SizeKind`. The few historical class changes — `List.Sort` /
+`Array.Sort` worst-case O(n²) before Framework 4.5 (now introsort),
+hash-flooding `Dictionary`/`HashSet` string keys on Framework
+without randomized hashing — are recorded as the modern cost
+(`sorts: true`, `CostKind.Expected`). Fast analysis sees the
+server's net10 platform assemblies; deep analysis uses
+`MSBuildWorkspace` so a `net8.0` project binds the APIs that
+exist there, then looks those members up in this same table. A
+member that does not exist on the user's TFM simply never appears.
 
 ### Add a hazard pattern
 
